@@ -1,0 +1,102 @@
+# ==============================================================================
+# IQAC Platform CI Pipeline — Automated Verification
+# ==============================================================================
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Backend Quality & Automated Test Suite
+  # ----------------------------------------------------------------------------
+  backend-tests:
+    name: Backend Lint, Migrations & Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: iqac_db_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements/base.txt
+          pip install -r backend/requirements/production.txt
+
+      - name: Verify Migration Consistency (Dry Run)
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: iqac_db_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres_ci_password
+        run: |
+          cd backend
+          python manage.py makemigrations --check --dry-run
+
+      - name: Run Backend Test Suite
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: iqac_db_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres_ci_password
+          SECRET_KEY: ci-test-secret-key-for-automated-github-actions-running-only
+        run: |
+          cd backend
+          python manage.py test --no-input
+
+  # ----------------------------------------------------------------------------
+  # Frontend Lint, TypeScript Verification & Production Build
+  # ----------------------------------------------------------------------------
+  frontend-build:
+    name: Frontend TypeScript & Bundle Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci || npm install
+
+      - name: TypeScript Check & Vite Production Build
+        run: |
+          cd frontend
+          npm run build

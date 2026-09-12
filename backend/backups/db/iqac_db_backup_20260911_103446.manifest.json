@@ -1,0 +1,17 @@
+{
+  "backup_file": "iqac_db_backup_20260911_103446.json.gz",
+  "timestamp": "2026-09-11T10:34:48.474709",
+  "database": "iqac_db",
+  "method": "dumpdata",
+  "size_bytes": 82897,
+  "sha256": "5b050d9441da9db2aac66bb74734356f1bfea1e92d11c49877cfeb543eeaf6fc",
+  "table_record_counts": {
+    "colleges_college": 4,
+    "accounts_user": 16,
+    "departments_department": 10,
+    "activities_activity": 13,
+    "activities_document": 7,
+    "verification_verificationrecord": 9
+  },
+  "iqac_version": "1.0.0"
+}
