@@ -3,6 +3,8 @@ Accounts — Serializers
 """
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from apps.colleges.models import College
+from apps.departments.models import Department
 from .models import User, UserRole, FacultyProfile, PasswordResetToken
 
 
@@ -190,3 +192,78 @@ class MeSerializer(serializers.ModelSerializer):
             request = self.context.get('request')
             return request.build_absolute_uri(obj.college.logo.url) if request else obj.college.logo.url
         return None
+
+
+class FacultyRegisterSerializer(serializers.Serializer):
+    """
+    Self-registration serializer for faculty members from the login page.
+    Requires selecting an active College and Department.
+    Enforces password validation, unique email, and automatically creates FacultyProfile.
+    """
+    college = serializers.PrimaryKeyRelatedField(
+        queryset=College.objects.filter(is_deleted=False)
+    )
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.filter(is_active=True)
+    )
+    first_name = serializers.CharField(max_length=150, required=True)
+    last_name = serializers.CharField(max_length=150, required=True)
+    email = serializers.EmailField(required=True)
+    employee_id = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    designation = serializers.CharField(max_length=100, required=False, allow_blank=True, default='Assistant Professor')
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True, default='')
+    password = serializers.CharField(write_only=True, required=True)
+    confirm_password = serializers.CharField(write_only=True, required=True)
+
+    def validate(self, data):
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError({'confirm_password': 'Passwords do not match.'})
+        validate_password(data['password'])
+
+        email = data['email'].strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError({'email': 'An account with this email address already exists.'})
+
+        college = data['college']
+        department = data['department']
+        if department.college_id != college.id:
+            raise serializers.ValidationError({'department': 'Selected department does not belong to the selected college.'})
+
+        return data
+
+    def create(self, validated_data):
+        import uuid
+        validated_data.pop('confirm_password')
+        password = validated_data.pop('password')
+        email = validated_data.pop('email').strip().lower()
+        college = validated_data.pop('college')
+        department = validated_data.pop('department')
+        employee_id = validated_data.get('employee_id', '').strip()
+        if not employee_id:
+            employee_id = f"FAC-{str(uuid.uuid4())[:6].upper()}"
+        validated_data['employee_id'] = employee_id
+
+        user = User.objects.create(
+            email=email,
+            college=college,
+            department=department,
+            role=UserRole.FACULTY,
+            is_active=True,
+            **validated_data
+        )
+        user.set_password(password)
+        user.save()
+
+        FacultyProfile.objects.get_or_create(
+            user=user,
+            defaults={
+                'college': college,
+                'department': department,
+                'employee_id': employee_id,
+                'designation': validated_data.get('designation', 'Assistant Professor'),
+                'phone': validated_data.get('phone', ''),
+            }
+        )
+
+        return user
+

@@ -5,6 +5,7 @@ from .views import (
     LoginView, LogoutView, MeView, ChangePasswordView,
     ForgotPasswordView, ResetPasswordView,
     FacultyProfileView, FacultyProfileViewSet, UserViewSet,
+    FacultyRegisterView,
 )
 
 router = DefaultRouter()
@@ -13,6 +14,7 @@ router.register(r'faculty/profiles', FacultyProfileViewSet, basename='faculty-pr
 
 urlpatterns = [
     path('login/', LoginView.as_view(), name='auth-login'),
+    path('register/faculty/', FacultyRegisterView.as_view(), name='faculty-register'),
     path('logout/', LogoutView.as_view(), name='auth-logout'),
     path('refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('me/', MeView.as_view(), name='auth-me'),

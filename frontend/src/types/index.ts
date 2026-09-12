@@ -51,6 +51,35 @@ export interface User {
   faculty_profile?: FacultyProfile | null;
 }
 
+export interface PublicDepartmentOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
+export interface PublicCollegeOption {
+  id: string;
+  name: string;
+  short_name?: string;
+  code: string;
+  city?: string;
+  state?: string;
+  departments: PublicDepartmentOption[];
+}
+
+export interface FacultyRegisterPayload {
+  college: string;
+  department: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  employee_id?: string;
+  designation?: string;
+  phone?: string;
+  password: string;
+  confirm_password: string;
+}
+
 export interface Program {
   id: string;
   name: string;

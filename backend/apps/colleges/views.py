@@ -38,11 +38,37 @@ class CollegeViewSet(viewsets.ModelViewSet):
     serializer_class = CollegeSerializer
 
     def get_permissions(self):
+        if self.action in ['public_colleges']:
+            return [AllowAny()]
         if self.action in ['create', 'destroy', 'suspend', 'activate', 'archive', 'restore', 'health_summary']:
             return [IsSuperAdmin()]
         if self.action in ['list']:
             return [IsAuthenticated()]
         return [IsAuthenticated()]
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='public')
+    def public_colleges(self, request):
+        """
+        Public catalog of active colleges and departments for registration dropdowns.
+        Zero confidential or billing data exposed.
+        """
+        colleges = College.objects.filter(is_deleted=False, is_active=True).prefetch_related('departments').order_by('name')
+        data = []
+        for c in colleges:
+            departments = [
+                {'id': str(d.id), 'name': d.name, 'code': d.code}
+                for d in c.departments.filter(is_active=True).order_by('name')
+            ]
+            data.append({
+                'id': str(c.id),
+                'name': c.name,
+                'short_name': c.short_name or c.name,
+                'code': c.code,
+                'city': c.city,
+                'state': c.state,
+                'departments': departments,
+            })
+        return Response({'results': data, 'count': len(data)})
 
     def get_queryset(self):
         user = self.request.user

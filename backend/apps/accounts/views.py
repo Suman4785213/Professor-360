@@ -21,7 +21,7 @@ from .models import User, UserRole, FacultyProfile, PasswordResetToken
 from .serializers import (
     UserSerializer, UserCreateSerializer, UserUpdateSerializer,
     MeSerializer, ChangePasswordSerializer, FacultyProfileSerializer,
-    ForgotPasswordSerializer, ResetPasswordSerializer,
+    ForgotPasswordSerializer, ResetPasswordSerializer, FacultyRegisterSerializer,
 )
 
 
@@ -54,6 +54,45 @@ class LoginView(TokenObtainPairView):
             except User.DoesNotExist:
                 pass
         return response
+
+
+class FacultyRegisterView(generics.CreateAPIView):
+    """
+    POST /api/v1/auth/register/faculty/
+    Allows faculty members to self-register with their selected college and department.
+    Returns access + refresh tokens and user profile for immediate login.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = FacultyRegisterSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+
+        log_action(
+            actor=user,
+            action='FACULTY_REGISTERED',
+            instance=user,
+            request=request,
+            comment=f'Faculty self-registered: {user.email} for college "{user.college.name}" ({user.department.name}).'
+        )
+
+        return Response({
+            'success': True,
+            'message': 'Faculty account created successfully.',
+            'access': access_token,
+            'refresh': str(refresh),
+            'tokens': {
+                'access': access_token,
+                'refresh': str(refresh),
+            },
+            'user': MeSerializer(user, context={'request': request}).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class LogoutView(generics.GenericAPIView):
