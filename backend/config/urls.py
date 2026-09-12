@@ -7,10 +7,21 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
-from core.views import health_check_view, HealthCheckAPIView
+from core.views import (
+    health_check_view,
+    HealthCheckAPIView,
+    readiness_check_view,
+    liveness_check_view,
+    custom_handler400,
+    custom_handler403,
+    custom_handler404,
+    custom_handler500,
+)
 
 api_v1_patterns = [
     path('health/', HealthCheckAPIView.as_view(), name='api-v1-health-check'),
+    path('health/ready/', readiness_check_view, name='api-v1-health-ready'),
+    path('health/live/', liveness_check_view, name='api-v1-health-live'),
     path('auth/', include('apps.accounts.urls')),
     path('', include('apps.colleges.urls')),
     path('', include('apps.departments.urls')),
@@ -29,15 +40,18 @@ api_v1_patterns = [
     path('ai/', include('apps.ai.urls')),
     path('imports/', include('apps.imports.urls')),
     path('integrations/', include('apps.integrations.urls')),
-    path('integrations/', include('apps.imports.urls')),
     path('support/', include('apps.support.urls')),
     path('', include('apps.support.urls')),
 ]
 
 urlpatterns = [
-    # Top-level health checks (for load balancers & container healthcheck)
+    # Top-level health checks (for load balancers, Kubernetes & container healthcheck)
     path('health/', health_check_view, name='health-check'),
+    path('health/ready/', readiness_check_view, name='health-ready'),
+    path('health/live/', liveness_check_view, name='health-live'),
     path('api/health/', HealthCheckAPIView.as_view(), name='api-health-check'),
+    path('api/health/ready/', readiness_check_view, name='api-health-ready'),
+    path('api/health/live/', liveness_check_view, name='api-health-live'),
 
     # Django admin
     path('django-admin/', admin.site.urls),
@@ -52,6 +66,13 @@ urlpatterns = [
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
 
+# Custom production error handlers
+handler400 = custom_handler400
+handler403 = custom_handler403
+handler404 = custom_handler404
+handler500 = custom_handler500
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+

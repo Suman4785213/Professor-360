@@ -179,13 +179,19 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
-# ─── CORS ────────────────────────────────────────────────────────────────────
+# ─── CORS & CSRF ─────────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
     default='http://localhost:5173,http://127.0.0.1:5173',
     cast=Csv(),
 )
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000',
+    cast=Csv(),
+)
 
 # ─── DRF Spectacular (OpenAPI docs) ─────────────────────────────────────────
 SPECTACULAR_SETTINGS = {

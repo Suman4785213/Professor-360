@@ -23,7 +23,14 @@ if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
         "CRITICAL SECURITY FAILURE: Explicit ALLOWED_HOSTS must be defined in production. Wildcards are strictly forbidden!"
     )
 
-# 4. HTTPS & SSL Hardening
+# 4. CORS & CSRF Hardening
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+if not CSRF_TRUSTED_ORIGINS and CORS_ALLOWED_ORIGINS:
+    # Safely align CSRF trusted origins with configured CORS domains
+    CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+
+# 5. HTTPS & SSL Hardening
 SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
@@ -46,10 +53,40 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = 'same-origin'
 X_FRAME_OPTIONS = 'DENY'
 
-# 5. Database Connection Pooling
+# 6. Database Production Configuration (Connection Pooling + DATABASE_URL)
+DATABASE_URL = config('DATABASE_URL', default='')
+if DATABASE_URL:
+    import urllib.parse
+    _db_url = urllib.parse.urlparse(DATABASE_URL)
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': _db_url.path.lstrip('/'),
+        'USER': _db_url.username,
+        'PASSWORD': _db_url.password,
+        'HOST': _db_url.hostname,
+        'PORT': _db_url.port or 5432,
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
+    }
+
 DATABASES['default']['CONN_MAX_AGE'] = config('DB_CONN_MAX_AGE', default=600, cast=int)
 
-# 6. Optional S3 Storage Integration
+# 7. Redis Cache & Background Jobs (Production Tier)
+REDIS_URL = config('REDIS_URL', default='')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'IGNORE_EXCEPTIONS': True,  # Graceful fallback if Redis is temporarily unreachable
+            }
+        }
+    }
+
+# 8. S3 / Object Storage Integration
 USE_S3 = config('USE_S3', default=False, cast=bool)
 if USE_S3:
     INSTALLED_APPS += ['storages']
@@ -63,7 +100,18 @@ if USE_S3:
     AWS_QUERYSTRING_AUTH = True  # Enforce signed private URLs for evidence documents
     DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 
-# 7. Production Logging — Structured with Request Tracking
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage" if USE_S3 else "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
+# 9. Production Logging — Structured & Sensitive Data Redaction
 LOGGING['handlers']['console']['level'] = 'INFO'
 LOGGING['loggers']['django']['level'] = 'WARNING'
 LOGGING['loggers']['apps']['level'] = 'INFO'
+LOGGING['loggers']['core']['level'] = 'INFO'
+

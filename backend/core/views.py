@@ -120,3 +120,96 @@ class HealthCheckAPIView(APIView):
 
     def get(self, request):
         return health_check_view(request)
+
+
+def readiness_check_view(request):
+    """
+    Production readiness probe (for Kubernetes, AWS ALB, Docker).
+    Returns 200 OK only when the system is ready to receive live user traffic (DB reachable).
+    Returns 503 if database connection cannot be established.
+    Never exposes credentials or internal configuration.
+    """
+    db_ok = True
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1;")
+            row = cursor.fetchone()
+            if not row or row[0] != 1:
+                db_ok = False
+    except Exception:
+        db_ok = False
+
+    payload = {
+        'status': 'READY' if db_ok else 'NOT_READY',
+        'database': 'CONNECTED' if db_ok else 'DISCONNECTED',
+        'request_id': getattr(request, 'id', get_current_request_id()),
+    }
+    response = JsonResponse(payload, status=200 if db_ok else 503)
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+
+
+def liveness_check_view(request):
+    """
+    Production liveness probe (for Kubernetes, AWS ALB, Docker).
+    Lightweight heartbeat indicating the web application process is active.
+    """
+    response = JsonResponse({
+        'status': 'ALIVE',
+        'request_id': getattr(request, 'id', get_current_request_id()),
+    }, status=200)
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+
+
+def custom_handler400(request, exception=None):
+    """Production-hardened 400 Bad Request handler."""
+    return JsonResponse({
+        'success': False,
+        'error': {
+            'code': 'BAD_REQUEST',
+            'message': 'The request could not be processed due to invalid parameters.',
+            'request_id': getattr(request, 'id', get_current_request_id()),
+        },
+        'message': 'Bad Request',
+    }, status=400)
+
+
+def custom_handler403(request, exception=None):
+    """Production-hardened 403 Forbidden handler."""
+    return JsonResponse({
+        'success': False,
+        'error': {
+            'code': 'FORBIDDEN',
+            'message': 'You do not have permission to access this resource.',
+            'request_id': getattr(request, 'id', get_current_request_id()),
+        },
+        'message': 'Forbidden',
+    }, status=403)
+
+
+def custom_handler404(request, exception=None):
+    """Production-hardened 404 Not Found handler."""
+    return JsonResponse({
+        'success': False,
+        'error': {
+            'code': 'NOT_FOUND',
+            'message': 'The requested resource was not found on this server.',
+            'request_id': getattr(request, 'id', get_current_request_id()),
+        },
+        'message': 'Not Found',
+    }, status=404)
+
+
+def custom_handler500(request):
+    """Production-hardened 500 Internal Server Error handler."""
+    return JsonResponse({
+        'success': False,
+        'error': {
+            'code': 'INTERNAL_SERVER_ERROR',
+            'message': 'An unexpected server error occurred. Please quote your Request ID to support.',
+            'request_id': getattr(request, 'id', get_current_request_id()),
+        },
+        'message': 'Internal Server Error',
+    }, status=500)
+

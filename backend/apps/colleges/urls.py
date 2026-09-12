@@ -42,6 +42,7 @@ urlpatterns = [
     path('billing/change-plan/', BillingPlanChangeView.as_view(), name='billing-change-plan'),
     path('billing/cancel/', BillingCancelView.as_view(), name='billing-cancel'),
     path('billing/invoices/<str:invoice_id>/pdf/', BillingInvoicePDFView.as_view(), name='billing-invoice-pdf'),
+    path('billing/webhooks/', BillingWebhookView.as_view(), name='billing-webhooks'),
     path('billing/pause/', BillingPauseResumeView.as_view(), {'action': 'pause'}, name='billing-pause'),
     path('billing/resume/', BillingPauseResumeView.as_view(), {'action': 'resume'}, name='billing-resume'),
     path('billing/reactivate/', BillingPauseResumeView.as_view(), {'action': 'reactivate'}, name='billing-reactivate'),
