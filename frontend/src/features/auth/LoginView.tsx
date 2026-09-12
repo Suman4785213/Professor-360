@@ -5,8 +5,8 @@ import { GraduationCap, ShieldCheck, CheckCircle2, ArrowRight, Lock, Mail } from
 
 export const LoginView: React.FC = () => {
   const { login, switchDemoRole, isLoading } = useAuthStore();
-  const [email, setEmail] = useState('iqac@sitrc.edu');
-  const [password, setPassword] = useState('demo123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const demoRoles = [
