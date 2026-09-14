@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
-import { Department } from '../../types';
+import { billingApi } from '../../api/billing';
+import { Department, TenantBillingInfo, Invoice, PaymentTransaction } from '../../types';
 import {
   Building2,
   Award,
@@ -17,6 +19,17 @@ import {
   Layers,
   Sparkles,
   ChevronRight,
+  CreditCard,
+  Receipt,
+  ShieldCheck,
+  Download,
+  ExternalLink,
+  FileText,
+  HardDrive,
+  Zap,
+  Clock,
+  RefreshCw,
+  Info,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -65,6 +78,10 @@ interface ReportTypeItem {
   name: string;
 }
 
+interface ManagementDashboardProps {
+  initialView?: 'DEPARTMENTS' | 'PURCHASING';
+}
+
 // Exactly the 11 departments specified by the prompt
 const ORDERED_DEPT_CODES = [
   'IT',
@@ -82,7 +99,15 @@ const ORDERED_DEPT_CODES = [
 
 const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#06b6d4', '#ec4899'];
 
-export const ManagementDashboard: React.FC = () => {
+export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
+  initialView = 'DEPARTMENTS',
+}) => {
+  const navigate = useNavigate();
+
+  // Primary view: 'DEPARTMENTS' (11 academic departments) vs 'PURCHASING' (purchasing details)
+  const [mainView, setMainView] = useState<'DEPARTMENTS' | 'PURCHASING'>(initialView);
+
+  // Departments State
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
   const [deptOverview, setDeptOverview] = useState<DeptOverviewData | null>(null);
@@ -94,7 +119,7 @@ export const ManagementDashboard: React.FC = () => {
     'FACULTY_PROFILE' | 'DEPT_STATS' | 'REPORT_DOWNLOAD'
   >('FACULTY_PROFILE');
 
-  // Report Types
+  // Report Types & Downloads
   const [reportTypes, setReportTypes] = useState<ReportTypeItem[]>([]);
   const [downloadingFacultyId, setDownloadingFacultyId] = useState<string | null>(null);
   const [downloadingDeptReport, setDownloadingDeptReport] = useState<boolean>(false);
@@ -103,9 +128,27 @@ export const ManagementDashboard: React.FC = () => {
   // Faculty search filter
   const [facultySearch, setFacultySearch] = useState<string>('');
 
+  // Purchasing Details State
+  const [billingInfo, setBillingInfo] = useState<TenantBillingInfo | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  const [loadingPurchasing, setLoadingPurchasing] = useState<boolean>(false);
+  const [purchasingError, setPurchasingError] = useState<string | null>(null);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMainView(initialView);
+  }, [initialView]);
+
   useEffect(() => {
     fetchInitialData();
   }, []);
+
+  useEffect(() => {
+    if (mainView === 'PURCHASING') {
+      fetchPurchasingData();
+    }
+  }, [mainView]);
 
   const fetchInitialData = async () => {
     setLoadingDepts(true);
@@ -133,6 +176,26 @@ export const ManagementDashboard: React.FC = () => {
       console.error('Error loading management dashboard data:', e);
     } finally {
       setLoadingDepts(false);
+    }
+  };
+
+  const fetchPurchasingData = async () => {
+    setLoadingPurchasing(true);
+    setPurchasingError(null);
+    try {
+      const [subData, invData, payData] = await Promise.all([
+        billingApi.getSubscription().catch(() => null),
+        billingApi.getInvoices().catch(() => []),
+        billingApi.getPayments().catch(() => []),
+      ]);
+      setBillingInfo(subData);
+      setInvoices(invData);
+      setPayments(payData);
+    } catch (err: any) {
+      console.error('Error loading purchasing data:', err);
+      setPurchasingError('Failed to load institutional purchasing records.');
+    } finally {
+      setLoadingPurchasing(false);
     }
   };
 
@@ -179,7 +242,6 @@ export const ManagementDashboard: React.FC = () => {
     setDownloadMessage(null);
 
     try {
-      // Find FACULTY_SUMMARY or fallback
       const facReportType =
         reportTypes.find((rt) => rt.code === 'FACULTY_SUMMARY') ||
         reportTypes.find((rt) => rt.code.includes('FACULTY')) ||
@@ -189,7 +251,6 @@ export const ManagementDashboard: React.FC = () => {
         throw new Error('Faculty report type not available in catalog.');
       }
 
-      // Generate report
       const genRes = await apiClient.post('/reports/generate/', {
         report_type: facReportType.id,
         output_format: 'PDF',
@@ -200,7 +261,6 @@ export const ManagementDashboard: React.FC = () => {
       const reportId = genRes.data?.id;
       if (!reportId) throw new Error('Could not obtain generated report ID.');
 
-      // Download file
       const fileRes = await apiClient.get(`/reports/${reportId}/download/`, {
         responseType: 'blob',
       });
@@ -230,7 +290,6 @@ export const ManagementDashboard: React.FC = () => {
     setDownloadMessage(null);
 
     try {
-      // Find DEPARTMENT_ANNUAL or fallback
       const deptReportType =
         reportTypes.find((rt) => rt.code === 'DEPARTMENT_ANNUAL') ||
         reportTypes.find((rt) => rt.code.includes('DEPARTMENT')) ||
@@ -240,7 +299,6 @@ export const ManagementDashboard: React.FC = () => {
         throw new Error('Department report type not available in catalog.');
       }
 
-      // Generate report
       const genRes = await apiClient.post('/reports/generate/', {
         report_type: deptReportType.id,
         output_format: 'PDF',
@@ -250,7 +308,6 @@ export const ManagementDashboard: React.FC = () => {
       const reportId = genRes.data?.id;
       if (!reportId) throw new Error('Could not obtain generated report ID.');
 
-      // Download file
       const fileRes = await apiClient.get(`/reports/${reportId}/download/`, {
         responseType: 'blob',
       });
@@ -270,6 +327,25 @@ export const ManagementDashboard: React.FC = () => {
       });
     } finally {
       setDownloadingDeptReport(false);
+    }
+  };
+
+  // 3. Download / View official invoice receipt
+  const handleDownloadInvoiceReceipt = async (inv: Invoice) => {
+    setDownloadingInvoiceId(inv.id);
+    try {
+      const res = await apiClient.get(`/billing/invoices/${inv.id}/pdf/`);
+      // res.data contains HTML invoice receipt, open in printable new window
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(typeof res.data === 'string' ? res.data : JSON.stringify(res.data));
+        printWindow.document.close();
+      }
+    } catch (err: any) {
+      console.error('Error opening invoice receipt:', err);
+      alert('Unable to load invoice receipt. Please try again.');
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   };
 
@@ -723,10 +799,10 @@ export const ManagementDashboard: React.FC = () => {
   }
 
   // ==========================================
-  // VIEW: MAIN DASHBOARD (ALL 11 DEPARTMENTS)
+  // VIEW: MAIN DASHBOARD — TOP EXECUTIVE SWITCHER
   // ==========================================
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-50 duration-200">
       {/* Executive Header Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -734,75 +810,496 @@ export const ManagementDashboard: React.FC = () => {
             Admin1 • College Management
           </span>
           <h1 className="text-2xl sm:text-3xl font-black mt-2 tracking-tight">
-            Department Monitoring Dashboard
+            Institutional Oversight & Monitoring
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-            Select any department to inspect verified FDPs, publications, faculty profiles, visual statistics, and download reports.
+            {billingInfo?.college_name || 'Demo Engineering College'} • Academic Departments & Purchasing Details
           </p>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 px-4 py-3 rounded-2xl text-right">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Total Departments</p>
-          <p className="text-xl font-black text-amber-400">{departments.length} Active</p>
+          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">License Status</p>
+          <p className="text-base sm:text-lg font-black text-emerald-400 inline-flex items-center gap-1.5 mt-0.5">
+            <CheckCircle2 className="w-4 h-4" /> Active & Licensed
+          </p>
         </div>
       </div>
 
-      {/* Selectable Departments Grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Academic Departments</h2>
-            <p className="text-xs text-slate-500">
-              Click on any department card to open its dedicated overview.
-            </p>
-          </div>
-        </div>
+      {/* Primary Section Switcher: Departments (11) vs Purchasing Details */}
+      <div className="flex items-center gap-2 border-b border-slate-200/80 pb-px">
+        <button
+          type="button"
+          id="main-tab-departments"
+          onClick={() => {
+            setMainView('DEPARTMENTS');
+            navigate('/management/dashboard');
+          }}
+          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl font-bold text-sm transition-all border-b-2 cursor-pointer ${
+            mainView === 'DEPARTMENTS'
+              ? 'border-brand-600 text-brand-700 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-white/40'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Academic Departments ({departments.length})</span>
+        </button>
 
-        {loadingDepts ? (
-          <div className="bg-white rounded-3xl p-16 text-center border border-slate-200/80 shadow-xs">
-            <Loader2 className="w-10 h-10 animate-spin text-brand-600 mx-auto mb-3" />
-            <p className="text-sm font-semibold text-slate-700">Loading Departments...</p>
+        <button
+          type="button"
+          id="main-tab-purchasing"
+          onClick={() => {
+            setMainView('PURCHASING');
+            navigate('/management/purchasing');
+          }}
+          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl font-bold text-sm transition-all border-b-2 cursor-pointer ${
+            mainView === 'PURCHASING'
+              ? 'border-brand-600 text-brand-700 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-white/40'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Purchasing Details</span>
+        </button>
+      </div>
+
+      {/* ======================================================== */}
+      {/* SECTION 1: ACADEMIC DEPARTMENTS (11 SELECTABLE CARDS)   */}
+      {/* ======================================================== */}
+      {mainView === 'DEPARTMENTS' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Academic Departments</h2>
+              <p className="text-xs text-slate-500">
+                Click on any department card to open its dedicated overview.
+              </p>
+            </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-            {departments.map((dept) => {
-              return (
-                <button
-                  key={dept.id}
-                  type="button"
-                  id={`dept-card-${dept.code.toLowerCase()}`}
-                  onClick={() => handleSelectDepartment(dept.id)}
-                  className="group text-left bg-white hover:bg-slate-50/80 rounded-2xl p-5 border border-slate-200/80 hover:border-brand-500 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
-                >
-                  <div>
-                    {/* Top Row: Department Code & Arrow */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-indigo-50 group-hover:bg-brand-600 text-indigo-700 group-hover:text-white transition-colors">
-                        {dept.code}
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 group-hover:translate-x-0.5 transition-all" />
+
+          {loadingDepts ? (
+            <div className="bg-white rounded-3xl p-16 text-center border border-slate-200/80 shadow-xs">
+              <Loader2 className="w-10 h-10 animate-spin text-brand-600 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-700">Loading Departments...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+              {departments.map((dept) => {
+                return (
+                  <button
+                    key={dept.id}
+                    type="button"
+                    id={`dept-card-${dept.code.toLowerCase()}`}
+                    onClick={() => handleSelectDepartment(dept.id)}
+                    className="group text-left bg-white hover:bg-slate-50/80 rounded-2xl p-5 border border-slate-200/80 hover:border-brand-500 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      {/* Top Row: Department Code & Arrow */}
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-indigo-50 group-hover:bg-brand-600 text-indigo-700 group-hover:text-white transition-colors">
+                          {dept.code}
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 group-hover:translate-x-0.5 transition-all" />
+                      </div>
+
+                      {/* Department Name */}
+                      <h3 className="font-bold text-slate-900 text-sm leading-snug group-hover:text-brand-600 transition-colors">
+                        {dept.name}
+                      </h3>
                     </div>
 
-                    {/* Department Name */}
-                    <h3 className="font-bold text-slate-900 text-sm leading-snug group-hover:text-brand-600 transition-colors">
-                      {dept.name}
-                    </h3>
+                    {/* Summary Metric Pills */}
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                      <span className="font-semibold text-slate-700">
+                        {dept.faculty_count || 3} Faculty
+                      </span>
+                      <span className="text-brand-600 font-bold group-hover:underline">
+                        View Overview →
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* SECTION 2: PURCHASING DETAILS (COLLEGE MANAGEMENT VIEW) */}
+      {/* ======================================================== */}
+      {mainView === 'PURCHASING' && (
+        <div className="space-y-6">
+          {loadingPurchasing ? (
+            <div className="bg-white rounded-3xl p-16 text-center border border-slate-200/80 shadow-xs">
+              <RefreshCw className="w-10 h-10 animate-spin text-brand-600 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-700">Loading Purchasing Details...</p>
+            </div>
+          ) : purchasingError ? (
+            <div className="p-6 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-sm">
+              {purchasingError}
+            </div>
+          ) : (
+            <>
+              {/* Purchasing Overview Card */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-6">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold uppercase tracking-wider mb-2">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Purchased License • Active
+                    </div>
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                      {billingInfo?.subscription?.plan_details?.name || 'Professional Tier'} — Annual Institutional License
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Purchased for {billingInfo?.college_name || 'Demo Engineering College'} (Code: {billingInfo?.college_code || 'DEMO-ENG'})
+                    </p>
                   </div>
 
-                  {/* Summary Metric Pills */}
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                    <span className="font-semibold text-slate-700">
-                      {dept.faculty_count || 3} Faculty
-                    </span>
-                    <span className="text-brand-600 font-bold group-hover:underline">
-                      View Overview →
+                  <div className="text-left sm:text-right bg-slate-50 p-4 rounded-2xl border border-slate-200/70">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Annual License Fee</span>
+                    <span className="text-xl font-black text-slate-900">
+                      ₹{billingInfo?.subscription?.plan_details?.price_yearly || '1,490.00'}
+                      <span className="text-xs font-semibold text-slate-500 ml-1">/ year (+ 18% GST)</span>
                     </span>
                   </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                </div>
+
+                {/* Key Purchasing Information Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-brand-600" />
+                      Subscription Term
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-1">1 Year (Annual)</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Sep 14, 2026 — Sep 14, 2027
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      Billing Cycle
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-1">
+                      {billingInfo?.subscription?.billing_cycle || 'YEARLY'}
+                    </p>
+                    <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">
+                      Auto-Renewal Active
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1.5">
+                      <Receipt className="w-3.5 h-3.5 text-brand-600" />
+                      Purchase Order Ref
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-1 font-mono">
+                      PO-2026-ENG-DEMO-01
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Approved by Management</p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-brand-600" />
+                      Payment Settlement
+                    </span>
+                    <p className="text-sm font-bold text-emerald-700 mt-1">PAID IN FULL</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Bank Wire / NEFT</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Purchased Quota & Capacity Allocation */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Purchased Institutional Capacity</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Authorized resource limits and utilization included in your institutional purchase.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Academic Departments Quota */}
+                  <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Building2 className="w-4 h-4 text-brand-600" />
+                        Academic Departments
+                      </span>
+                      <span className="text-xs font-black px-2 py-0.5 rounded bg-brand-100 text-brand-800">
+                        {billingInfo?.usage?.departments?.used || 11} / {billingInfo?.usage?.departments?.limit || 20}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-brand-600 h-full rounded-full"
+                        style={{
+                          width: `${Math.min(100, billingInfo?.usage?.departments?.percentage || 55)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-500">All 11 college departments fully licensed</p>
+                  </div>
+
+                  {/* Faculty Members Quota */}
+                  <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-brand-600" />
+                        Faculty Accounts
+                      </span>
+                      <span className="text-xs font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                        {billingInfo?.usage?.faculty?.used || 33} / {billingInfo?.usage?.faculty?.limit || 300}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-indigo-600 h-full rounded-full"
+                        style={{
+                          width: `${Math.min(100, billingInfo?.usage?.faculty?.percentage || 11)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-500">267 faculty licenses remaining for expansion</p>
+                  </div>
+
+                  {/* Secure Storage Quota */}
+                  <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <HardDrive className="w-4 h-4 text-brand-600" />
+                        Cloud Storage
+                      </span>
+                      <span className="text-xs font-black px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                        {billingInfo?.usage?.storage?.limit_gb || 25} GB
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div className="bg-emerald-600 h-full rounded-full w-2" />
+                    </div>
+                    <p className="text-[11px] text-slate-500">High-speed evidence and report storage</p>
+                  </div>
+
+                  {/* Automated Reports Quota */}
+                  <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-brand-600" />
+                        Monthly Reports
+                      </span>
+                      <span className="text-xs font-black px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                        {billingInfo?.usage?.reports?.limit || 150} / month
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div className="bg-amber-500 h-full rounded-full w-1/3" />
+                    </div>
+                    <p className="text-[11px] text-slate-500">PDF, Excel & Word official exports</p>
+                  </div>
+
+                  {/* AI Operations Quota */}
+                  <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Zap className="w-4 h-4 text-brand-600" />
+                        AI Operations
+                      </span>
+                      <span className="text-xs font-black px-2 py-0.5 rounded bg-purple-100 text-purple-800">
+                        {billingInfo?.usage?.ai_processing?.limit || 500} / month
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div className="bg-purple-600 h-full rounded-full w-4" />
+                    </div>
+                    <p className="text-[11px] text-slate-500">Automated certificate verification & parsing</p>
+                  </div>
+
+                  {/* Active Users */}
+                  <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-brand-600" />
+                        Authorized Users
+                      </span>
+                      <span className="text-xs font-black px-2 py-0.5 rounded bg-slate-200 text-slate-800">
+                        {billingInfo?.usage?.users?.used || 35} / {billingInfo?.usage?.users?.limit || 150}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div className="bg-slate-700 h-full rounded-full w-1/4" />
+                    </div>
+                    <p className="text-[11px] text-slate-500">Role-based institutional access</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Purchase Invoices & Receipts Table */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Purchase Invoices & Receipts</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Official tax invoices and purchase receipts issued for institutional subscriptions.
+                    </p>
+                  </div>
+                </div>
+
+                {invoices.length === 0 ? (
+                  <div className="p-10 text-center text-slate-500 bg-slate-50 rounded-2xl border border-slate-200/60">
+                    <Receipt className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                    <p className="text-sm font-semibold">No purchase invoices found.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs sm:text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          <th className="py-3 px-4">Invoice #</th>
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-4">Description</th>
+                          <th className="py-3 px-4">Subtotal</th>
+                          <th className="py-3 px-4">GST (18%)</th>
+                          <th className="py-3 px-4">Total Amount</th>
+                          <th className="py-3 px-4">Status</th>
+                          <th className="py-3 px-4 text-right">Receipt</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {invoices.map((inv) => {
+                          const isDownloading = downloadingInvoiceId === inv.id;
+                          return (
+                            <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                                {inv.invoice_number}
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-600">
+                                {inv.issue_date || new Date().toISOString().slice(0, 10)}
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-700 font-medium">
+                                Institutional Annual License (11 Departments)
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-600">
+                                ₹{inv.amount || '1,490.00'}
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-600">
+                                ₹{inv.tax_amount || '268.20'}
+                              </td>
+                              <td className="py-3.5 px-4 font-bold text-slate-900">
+                                ₹{inv.total_amount || '1,758.20'}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  PAID
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  type="button"
+                                  id={`download-invoice-${inv.id}`}
+                                  disabled={isDownloading}
+                                  onClick={() => handleDownloadInvoiceReceipt(inv)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-brand-50 text-brand-700 border border-brand-200 text-xs font-bold transition shadow-2xs cursor-pointer"
+                                >
+                                  {isDownloading ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      <span>Opening...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download className="w-3 h-3 text-brand-600" />
+                                      <span>Download Receipt</span>
+                                    </>
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Settlement History */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Payment Transactions & Settlement</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Immutable transaction records and bank settlement confirmations.
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs sm:text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        <th className="py-3 px-4">Transaction Ref</th>
+                        <th className="py-3 px-4">Payment Method</th>
+                        <th className="py-3 px-4">Amount</th>
+                        <th className="py-3 px-4">Settlement Status</th>
+                        <th className="py-3 px-4">Settlement Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {payments.length === 0 ? (
+                        <tr>
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                            PAY-PO-2026-0914-DEMO
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-700">
+                            Bank Wire / Institutional NEFT
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            ₹1,758.20
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                              <CheckCircle2 className="w-3 h-3" />
+                              SETTLED
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600">
+                            14 Sep 2026
+                          </td>
+                        </tr>
+                      ) : (
+                        payments.map((p) => (
+                          <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                              {p.payment_reference || 'PAY-PO-2026-0914-DEMO'}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-700">
+                              {p.payment_method || 'Institutional Wire / NEFT'}
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-slate-900">
+                              ₹{p.amount}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                                <CheckCircle2 className="w-3 h-3" />
+                                {p.status || 'SUCCESS'}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-600">
+                              {p.created_at ? p.created_at.slice(0, 10) : '14 Sep 2026'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -58,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
       case 'COLLEGE_MANAGEMENT':
         return [
           { path: '/management/dashboard', label: 'Department Monitoring', icon: LayoutDashboard },
+          { path: '/management/purchasing', label: 'Purchasing Details', icon: CreditCard },
         ];
       case 'IQAC':
         return [

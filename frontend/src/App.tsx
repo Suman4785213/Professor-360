@@ -272,6 +272,7 @@ export function App() {
                 <RoleRoute allowedRoles={['COLLEGE_MANAGEMENT']}>
                   <Routes>
                     <Route path="dashboard" element={<ManagementDashboard />} />
+                    <Route path="purchasing" element={<ManagementDashboard initialView="PURCHASING" />} />
                     <Route path="college-overview" element={<CollegeOverview />} />
                     <Route path="departments" element={<DepartmentList />} />
                     <Route path="criteria" element={<CriteriaDashboard />} />
