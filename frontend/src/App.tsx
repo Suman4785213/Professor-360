@@ -198,7 +198,7 @@ export function App() {
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}
       />
-      {user?.role !== 'SUPER_ADMIN' && <AnnouncementBanner />}
+      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && <AnnouncementBanner />}
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -207,7 +207,9 @@ export function App() {
         />
 
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-          {user?.role !== 'SUPER_ADMIN' && <OnboardingChecklist onOpenUpload={() => setIsMobileUploadOpen(true)} />}
+          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && (
+            <OnboardingChecklist onOpenUpload={() => setIsMobileUploadOpen(true)} />
+          )}
           <Routes>
             {/* Root redirect */}
             <Route path="/" element={<Navigate to={getRoleDashboardPath(user?.role)} replace />} />

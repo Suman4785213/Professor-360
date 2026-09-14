@@ -57,23 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
         ];
       case 'COLLEGE_MANAGEMENT':
         return [
-          { path: '/management/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { path: '/ai/copilot', label: 'IQAC Copilot', icon: Sparkles },
-          { path: '/billing', label: 'Billing & Plans', icon: CreditCard },
-          { path: '/management/college-overview', label: 'College Overview', icon: Building },
-          { path: '/settings/college', label: 'College Settings', icon: Settings },
-          { path: '/settings/team', label: 'Team & Invitations', icon: Users },
-          { path: '/imports', label: 'Import Center', icon: UploadCloud },
-          { path: '/settings/integrations', label: 'API & Integrations', icon: Globe },
-          { path: '/communication', label: 'Communication Center', icon: Megaphone },
-          { path: '/management/departments', label: 'Departments', icon: Building2 },
-          { path: '/management/criteria/dashboard', label: 'Criteria Progress', icon: BarChart3 },
-          { path: '/management/compliance', label: 'AQAR / SSR Monitoring', icon: FileSpreadsheet },
-          { path: '/tasks', label: 'Deliverables & Tasks', icon: CheckSquare },
-          { path: '/management/reports', label: 'Reports', icon: FileText },
-          { path: '/management/analytics', label: 'Executive Analytics', icon: BarChart3 },
-          { path: '/support', label: 'Support & Help', icon: LifeBuoy },
-          { path: '/notifications', label: 'Notifications', icon: Bell },
+          { path: '/management/dashboard', label: 'Department Monitoring', icon: LayoutDashboard },
         ];
       case 'IQAC':
         return [
@@ -178,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
           <div>
             <span className="text-sm font-black text-white tracking-wide block">Professor360</span>
             <span className="text-[10px] text-brand-400 font-semibold uppercase tracking-wider block">
-              {role === 'SUPER_ADMIN' ? 'Product Administration' : 'Quality Assurance'}
+              {role === 'SUPER_ADMIN' ? 'Product Administration' : role === 'COLLEGE_MANAGEMENT' ? 'College Monitoring (Admin1)' : 'Quality Assurance'}
             </span>
           </div>
         </div>
