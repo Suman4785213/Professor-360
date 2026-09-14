@@ -31,7 +31,7 @@ export const DashboardRouter: React.FC<DashboardRouterProps> = ({
     case 'HOD':
       return <HODDashboard setActiveTab={setActiveTab} onOpenReview={onOpenReview} />;
     case 'IQAC':
-      return <IQACDashboard setActiveTab={setActiveTab} onOpenReview={onOpenReview} />;
+      return <IQACDashboard />;
     case 'COLLEGE_MANAGEMENT':
       return <ManagementDashboard />;
     case 'SUPER_ADMIN':

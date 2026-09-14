@@ -62,30 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
         ];
       case 'IQAC':
         return [
-          { path: '/iqac/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { path: '/ai/copilot', label: 'IQAC Copilot', icon: Sparkles },
-          { path: '/billing', label: 'Billing & Plans', icon: CreditCard },
-          { path: '/iqac/work-queue', label: 'IQAC Work Queue', icon: ListTodo },
-          { path: '/tasks', label: 'Task Management', icon: CheckSquare },
-          { path: '/imports', label: 'Import Center', icon: UploadCloud },
-          { path: '/iqac/departments', label: 'Departments', icon: Building2 },
-          { path: '/iqac/users', label: 'Users', icon: Users },
-          { path: '/iqac/academic-years', label: 'Academic Years', icon: Calendar },
-          { path: '/iqac/verification', label: 'Verification', icon: ShieldCheck },
-          { path: '/iqac/evidence', label: 'Evidence', icon: Award },
-          { path: '/iqac/criteria/dashboard', label: 'Criteria Progress', icon: BarChart3 },
-          { path: '/iqac/criteria', label: 'Criteria & Metrics', icon: Layers },
-          { path: '/iqac/aqar', label: 'AQAR Workspace', icon: FileSpreadsheet },
-          { path: '/iqac/ssr', label: 'SSR Workspace', icon: BookOpen },
-          { path: '/iqac/intelligence', label: 'Operations Hub', icon: Cpu },
-          { path: '/iqac/analytics', label: 'Advanced Analytics', icon: BarChart3 },
-          { path: '/iqac/reports', label: 'Reports', icon: FileText },
-          { path: '/settings/college', label: 'College Settings', icon: Settings },
-          { path: '/settings/team', label: 'Team & Invitations', icon: Users },
-          { path: '/settings/integrations', label: 'API & Integrations', icon: Globe },
-          { path: '/communication', label: 'Communication Center', icon: Megaphone },
-          { path: '/support', label: 'Support & Help', icon: LifeBuoy },
-          { path: '/notifications', label: 'Notifications', icon: Bell },
+          { path: '/iqac/dashboard', label: 'Department & IQAC Reports', icon: LayoutDashboard },
         ];
       case 'HOD':
         return [

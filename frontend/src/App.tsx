@@ -198,7 +198,7 @@ export function App() {
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}
       />
-      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && <AnnouncementBanner />}
+      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && <AnnouncementBanner />}
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -207,7 +207,7 @@ export function App() {
         />
 
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && (
+          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && (
             <OnboardingChecklist onOpenUpload={() => setIsMobileUploadOpen(true)} />
           )}
           <Routes>
@@ -296,17 +296,7 @@ export function App() {
               element={
                 <RoleRoute allowedRoles={['IQAC']}>
                   <Routes>
-                    <Route
-                      path="dashboard"
-                      element={
-                        <IQACDashboard
-                          setActiveTab={(tab) => {
-                            if (tab === 'verification') navigate('/iqac/verification');
-                          }}
-                          onOpenReview={handleOpenReview}
-                        />
-                      }
-                    />
+                    <Route path="dashboard" element={<IQACDashboard />} />
                     <Route path="departments" element={<DepartmentList />} />
                     <Route path="programs" element={<ProgramList />} />
                     <Route path="users" element={<UserManagement />} />

@@ -80,11 +80,37 @@ class DepartmentViewSet(TenantMixin, viewsets.ModelViewSet):
         from apps.activities.models import Activity
         from apps.accounts.models import User
 
+        dept_acts = Activity.objects.filter(department=dept)
+
         q_fdp = Q(category__code='FDP') | Q(activity_type='FDP')
         q_pub = Q(category__code='PUBLICATION') | Q(activity_type='PUBLICATION')
+        q_cert = Q(category__code='CERTIFICATION') | Q(activity_type='CERTIFICATION')
+        q_workshop = Q(category__code='WORKSHOP') | Q(activity_type='WORKSHOP')
+        q_seminar = Q(category__code='SEMINAR') | Q(activity_type='SEMINAR')
+        q_conf = Q(category__code='CONFERENCE') | Q(activity_type='CONFERENCE')
+        q_fdp_act = Q(category__code__in=['FDP', 'TRAINING']) | Q(activity_type__in=['FDP', 'TRAINING'])
+        q_research = Q(category__code='RESEARCH') | Q(activity_type='RESEARCH')
+        q_award = Q(category__code__in=['AWARD', 'ACHIEVEMENT']) | Q(activity_type__in=['AWARD', 'ACHIEVEMENT'])
+        q_patent = Q(category__code='PATENT')
+        q_project = Q(category__code='PROJECT')
+        q_consultancy = Q(category__code='CONSULTANCY')
+        q_membership = Q(category__code='MEMBERSHIP')
+        q_other = Q(category__code='OTHER') | Q(activity_type='OTHER')
 
-        fdp_count = Activity.objects.filter(department=dept).filter(q_fdp).count()
-        pub_count = Activity.objects.filter(department=dept).filter(q_pub).count()
+        fdp_count = dept_acts.filter(q_fdp).count()
+        pub_count = dept_acts.filter(q_pub).count()
+        cert_count = dept_acts.filter(q_cert).count()
+        workshop_count = dept_acts.filter(q_workshop).count()
+        seminar_count = dept_acts.filter(q_seminar).count()
+        conf_count = dept_acts.filter(q_conf).count()
+        fdp_act_count = dept_acts.filter(q_fdp_act).count()
+        research_count = dept_acts.filter(q_research).count()
+        award_count = dept_acts.filter(q_award).count()
+        patent_count = dept_acts.filter(q_patent).count()
+        project_count = dept_acts.filter(q_project).count()
+        consultancy_count = dept_acts.filter(q_consultancy).count()
+        membership_count = dept_acts.filter(q_membership).count()
+        other_count = dept_acts.filter(q_other).count()
 
         # Faculty list
         faculty_users = User.objects.filter(
@@ -126,19 +152,64 @@ class DepartmentViewSet(TenantMixin, viewsets.ModelViewSet):
         category_stats = [
             {'name': 'FDPs Attended', 'count': fdp_count},
             {'name': 'Research Publications', 'count': pub_count},
-            {'name': 'Conferences & Seminars', 'count': Activity.objects.filter(department=dept, category__code__in=['CONFERENCE', 'SEMINAR']).count()},
-            {'name': 'Workshops & Certifications', 'count': Activity.objects.filter(department=dept, category__code__in=['WORKSHOP', 'CERTIFICATION']).count()},
+            {'name': 'Conferences & Seminars', 'count': conf_count + seminar_count},
+            {'name': 'Workshops & Certifications', 'count': workshop_count + cert_count},
+            {'name': 'Patents & Projects', 'count': patent_count + project_count},
+            {'name': 'Awards & Consultancy', 'count': award_count + consultancy_count},
         ]
+
+        # Department-level comparison graphs (Section 23)
+        comparison_graphs = {
+            'fdp_vs_publications': [
+                {'metric': 'FDPs Attended/Conducted', 'count': fdp_count},
+                {'metric': 'Research Publications', 'count': pub_count},
+            ],
+            'certifications_vs_workshops': [
+                {'metric': 'Certifications Completed', 'count': cert_count},
+                {'metric': 'Workshops Attended', 'count': workshop_count},
+            ],
+            'seminars_vs_conferences': [
+                {'metric': 'Seminars / Webinars', 'count': seminar_count},
+                {'metric': 'Conferences Presented', 'count': conf_count},
+            ],
+            'research_patents_projects': [
+                {'metric': 'Research Activities', 'count': research_count},
+                {'metric': 'Patents Filed / Granted', 'count': patent_count},
+                {'metric': 'Funded Projects', 'count': project_count},
+            ],
+            'institutional_contributions': [
+                {'metric': 'Awards / Achievements', 'count': award_count},
+                {'metric': 'Consultancy Activities', 'count': consultancy_count},
+                {'metric': 'Professional Memberships', 'count': membership_count},
+                {'metric': 'Other Academic Activities', 'count': other_count},
+            ]
+        }
 
         return Response({
             'id': str(dept.id),
             'name': dept.name,
             'code': dept.code,
             'description': dept.description,
+            # Core 15 Overview Metrics
+            'total_faculty': len(faculty_data),
+            'total_faculty_count': len(faculty_data),
             'total_fdps': fdp_count,
             'total_publications': pub_count,
-            'total_faculty_count': len(faculty_data),
+            'total_certifications': cert_count,
+            'total_workshops': workshop_count,
+            'total_seminars': seminar_count,
+            'total_conferences': conf_count,
+            'total_fdp_activities': fdp_act_count,
+            'total_research': research_count,
+            'total_awards': award_count,
+            'total_patents': patent_count,
+            'total_projects': project_count,
+            'total_consultancy': consultancy_count,
+            'total_memberships': membership_count,
+            'total_other': other_count,
+            # Lists and visualizations
             'faculty': faculty_data,
+            'graphs': comparison_graphs,
             'stats': {
                 'yearly': yearly_stats,
                 'categories': category_stats,
