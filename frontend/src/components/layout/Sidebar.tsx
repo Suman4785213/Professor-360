@@ -84,21 +84,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
         ];
       case 'DEPARTMENT_INCHARGE':
         return [
-          { path: '/incharge/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { path: '/ai/copilot', label: 'IQAC Copilot', icon: Sparkles },
-          { path: '/department/work-queue', label: 'In-charge Queue', icon: ListTodo },
-          { path: '/tasks', label: 'Workflow Tasks', icon: CheckSquare },
-          { path: '/imports', label: 'Import Data', icon: UploadCloud },
-          { path: '/incharge/faculty', label: 'Faculty', icon: Users },
-          { path: '/incharge/verification', label: 'Verification', icon: FileCheck },
-          { path: '/incharge/evidence', label: 'Department Evidence', icon: Award },
-          { path: '/incharge/criteria/dashboard', label: 'Criteria Progress', icon: BarChart3 },
-          { path: '/incharge/forwarded-records', label: 'Forwarded Records', icon: ShieldCheck },
-          { path: '/incharge/aqar', label: 'AQAR / SSR Data', icon: FileSpreadsheet },
-          { path: '/incharge/reports', label: 'Reports', icon: FileText },
-          { path: '/communication', label: 'Announcements', icon: Megaphone },
-          { path: '/support', label: 'Support & Help', icon: LifeBuoy },
-          { path: '/notifications', label: 'Notifications', icon: Bell },
+          { path: '/incharge/merge', label: 'Merge Report', icon: Layers },
+          { path: '/incharge/downloads', label: 'Downloaded Reports', icon: FileCheck },
         ];
       case 'FACULTY':
         return [
@@ -133,14 +120,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
     <>
       {/* Brand header */}
       <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div
+          onClick={() => {
+            if (role === 'DEPARTMENT_INCHARGE') navigate('/incharge/dashboard');
+            else if (role === 'SUPER_ADMIN') navigate('/super-admin/dashboard');
+            else if (role === 'COLLEGE_MANAGEMENT') navigate('/management/dashboard');
+            else if (role === 'IQAC') navigate('/iqac/dashboard');
+            else if (role === 'HOD') navigate('/hod/dashboard');
+            else if (role === 'FACULTY') navigate('/faculty/dashboard');
+            if (onCloseMobile) onCloseMobile();
+          }}
+          className="flex items-center gap-3 cursor-pointer select-none"
+          title="Dashboard"
+        >
           <div className="w-9 h-9 rounded-xl bg-brand-500/20 text-brand-400 flex items-center justify-center font-black border border-brand-500/30 shadow-inner">
             <GraduationCap className="w-5 h-5" />
           </div>
           <div>
             <span className="text-sm font-black text-white tracking-wide block">Professor360</span>
             <span className="text-[10px] text-brand-400 font-semibold uppercase tracking-wider block">
-              {role === 'SUPER_ADMIN' ? 'Product Administration' : role === 'COLLEGE_MANAGEMENT' ? 'College Monitoring (Admin1)' : 'Quality Assurance'}
+              {role === 'SUPER_ADMIN' ? 'Product Administration' : role === 'COLLEGE_MANAGEMENT' ? 'College Monitoring (Admin1)' : role === 'DEPARTMENT_INCHARGE' ? 'Dept In-charge' : 'Quality Assurance'}
             </span>
           </div>
         </div>

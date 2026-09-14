@@ -8,6 +8,8 @@ from rest_framework.response import Response
 from apps.accounts.models import User, UserRole
 from apps.notifications.models import (
     Notification,
+    NotificationCategory,
+    NotificationPriority,
     NotificationPreference,
     NotificationTemplate,
     IQACTask,
@@ -106,6 +108,163 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
         serializer = NotificationPreferenceSerializer(pref)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='send-report-request')
+    def send_report_request(self, request):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response(
+                {'error': 'Only Department In-charge can send report requests.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if not user.department:
+            return Response(
+                {'error': 'Department In-charge must have an assigned department.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        faculty_id = request.data.get('faculty_id')
+        if not faculty_id:
+            return Response(
+                {'error': 'faculty_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        faculty = User.objects.filter(id=faculty_id, is_active=True).first()
+        if not faculty:
+            return Response(
+                {'error': 'Faculty member not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Strict Department Isolation: Faculty must belong to same department and college
+        if faculty.department_id != user.department_id or faculty.college_id != user.college_id:
+            return Response(
+                {'error': 'Department isolation: You cannot send notifications to faculty outside your assigned department.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        custom_message = request.data.get('message') or (
+            f"Department In-charge {user.get_full_name() or user.email} has requested your faculty report for departmental consolidation and submission to HOD."
+        )
+
+        notification = Notification.objects.create(
+            recipient=faculty,
+            sender=user,
+            college=user.college,
+            category=NotificationCategory.REPORT,
+            notification_type='INCHARGE_REPORT_REQUEST',
+            title=f"Report Submission Request from {user.get_full_name() or user.email}",
+            body=custom_message,
+            priority=NotificationPriority.HIGH,
+            metadata={
+                'request_type': 'REPORT_REQUEST',
+                'response_options': ['Okay', 'Done', 'No'],
+                'incharge_id': str(user.id),
+                'incharge_name': user.get_full_name() or user.email,
+                'faculty_id': str(faculty.id),
+                'faculty_name': faculty.get_full_name() or faculty.email,
+                'department_id': str(user.department_id),
+                'department_name': user.department.name if user.department else '',
+                'status': 'PENDING_RESPONSE',
+            }
+        )
+
+        return Response(NotificationSerializer(notification).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='respond-report-request')
+    def respond_report_request(self, request, pk=None):
+        notification = self.get_object()
+        user = request.user
+
+        if notification.recipient_id != user.id:
+            return Response(
+                {'error': 'Only the recipient faculty can respond to this notification.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        response_choice = request.data.get('response')
+        if response_choice not in ['Okay', 'Done', 'No']:
+            return Response(
+                {'error': "Invalid response option. Must be one of: 'Okay', 'Done', 'No'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        response_map = {
+            'Okay': "Let me submit it soon.",
+            'Done': "Report has been uploaded and ready for review.",
+            'No': "Unable to submit the report at this moment.",
+        }
+        response_text = response_map[response_choice]
+
+        # Update current notification
+        notification.metadata = notification.metadata or {}
+        notification.metadata['response'] = response_choice
+        notification.metadata['response_text'] = response_text
+        notification.metadata['response_timestamp'] = timezone.now().isoformat()
+        notification.metadata['status'] = f'RESPONDED_{response_choice.upper()}'
+        notification.is_read = True
+        notification.read_at = timezone.now()
+        notification.save()
+
+        # Send response notification back to the In-charge
+        incharge = notification.sender
+        if incharge:
+            Notification.objects.create(
+                recipient=incharge,
+                sender=user,
+                college=user.college,
+                category=NotificationCategory.REPORT,
+                notification_type='FACULTY_REPORT_RESPONSE',
+                title=f"Faculty {user.get_full_name()} Responded: {response_choice}",
+                body=f"Faculty member {user.get_full_name() or user.email} selected '{response_choice}' in response to your report request: \"{response_text}\"",
+                priority=NotificationPriority.NORMAL,
+                metadata={
+                    'response': response_choice,
+                    'response_text': response_text,
+                    'faculty_id': str(user.id),
+                    'faculty_name': user.get_full_name() or user.email,
+                    'original_notification_id': str(notification.id),
+                    'department_id': str(user.department_id),
+                    'department_name': user.department.name if user.department else '',
+                }
+            )
+
+        return Response({
+            'status': 'success',
+            'response': response_choice,
+            'response_text': response_text,
+            'notification': NotificationSerializer(notification).data,
+        })
+
+    @action(detail=False, methods=['get'], url_path='incharge-requests')
+    def incharge_requests(self, request):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response({'results': []})
+
+        sent_reqs = Notification.objects.filter(
+            sender=user,
+            notification_type='INCHARGE_REPORT_REQUEST'
+        ).select_related('recipient').order_by('-created_at')
+
+        results = []
+        for n in sent_reqs:
+            results.append({
+                'id': str(n.id),
+                'faculty_id': str(n.recipient_id),
+                'faculty_name': n.recipient.get_full_name() or n.recipient.email,
+                'faculty_designation': getattr(n.recipient, 'designation', 'Faculty'),
+                'title': n.title,
+                'body': n.body,
+                'created_at': n.created_at,
+                'response': (n.metadata or {}).get('response'),
+                'response_text': (n.metadata or {}).get('response_text'),
+                'response_timestamp': (n.metadata or {}).get('response_timestamp'),
+                'status': (n.metadata or {}).get('status', 'PENDING_RESPONSE'),
+            })
+
+        return Response({'results': results})
 
 
 class IQACTaskViewSet(viewsets.ModelViewSet):

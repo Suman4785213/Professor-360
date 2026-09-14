@@ -3,6 +3,8 @@ Views for Reports app — Phase 6: Automated Report Generation Engine
 Endpoints for Report Types, Custom Templates, Preview, Generation, History, and Secure Downloads.
 """
 import mimetypes
+import io
+from django.core.files.base import ContentFile
 from django.db import models
 from django.db.models import Q
 from django.http import FileResponse, Http404
@@ -15,7 +17,9 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from core.mixins import TenantMixin
 from core.permissions import IsSuperAdminOrIQAC
 from apps.audit.utils import log_action
-from .models import ReportType, ReportTemplate, ReportTemplateVersion, GeneratedReport, ReportStatus
+from apps.accounts.models import User
+from apps.notifications.models import Notification, NotificationCategory, NotificationPriority
+from .models import ReportType, ReportTemplate, ReportTemplateVersion, GeneratedReport, ReportStatus, ReportFormat
 from .serializers import (
     ReportTypeSerializer,
     ReportTemplateSerializer,
@@ -24,7 +28,7 @@ from .serializers import (
     ReportFilterRequestSerializer,
     ReportGenerateRequestSerializer,
 )
-from .services import ReportDataService, ReportGenerationCoordinator
+from .services import ReportDataService, ReportGenerationCoordinator, PDFReportGenerator
 
 
 class ReportTypeViewSet(viewsets.ModelViewSet):
@@ -366,3 +370,327 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         )
 
         return Response({'status': 'Report archived successfully', 'id': str(report.id)})
+
+    @action(detail=False, methods=['post'], url_path='incharge-faculty-report')
+    def incharge_faculty_report(self, request):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response({'error': 'Only Department In-charge can download faculty reports.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'error': 'Department In-charge must have an assigned department.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        faculty_id = request.data.get('faculty_id')
+        if not faculty_id:
+            return Response({'error': 'faculty_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        faculty = User.objects.filter(id=faculty_id, is_active=True).first()
+        if not faculty:
+            return Response({'error': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Department isolation: must belong to same department and college
+        if faculty.department_id != user.department_id or faculty.college_id != user.college_id:
+            return Response({'error': 'Department isolation: You cannot download reports for faculty outside your department.'}, status=status.HTTP_403_FORBIDDEN)
+
+        report_type = ReportType.objects.filter(code='FACULTY_PROFILE').first() or ReportType.objects.first()
+        filters = {'faculty': str(faculty.id), 'department': str(user.department_id)}
+        
+        # Scoped report data
+        scoped_data = ReportDataService.get_scoped_data(user, filters, report_type)
+        pdf_buffer = PDFReportGenerator.generate(scoped_data)
+
+        # Create GeneratedReport record
+        report_record = GeneratedReport.objects.create(
+            college=user.college,
+            report_type=report_type,
+            title=f"Faculty Academic Report — {faculty.get_full_name() or faculty.email}",
+            department=user.department,
+            faculty=faculty,
+            filters_applied={
+                'incharge_downloaded': True,
+                'faculty_id': str(faculty.id),
+                'faculty_name': faculty.get_full_name(),
+                'faculty_designation': getattr(faculty, 'designation', 'Faculty'),
+                'incharge_id': str(user.id),
+            },
+            record_count=scoped_data['meta'].get('total_records', 0),
+            output_format=ReportFormat.PDF,
+            status=ReportStatus.COMPLETED,
+            generated_by=user,
+        )
+
+        filename = f"Faculty_Report_{faculty.last_name or 'Member'}_{report_record.id}.pdf"
+        pdf_content = pdf_buffer if isinstance(pdf_buffer, bytes) else pdf_buffer.getvalue()
+        report_record.file.save(filename, ContentFile(pdf_content), save=True)
+        report_record.file_size = report_record.file.size
+        report_record.save(update_fields=['file_size'])
+
+        log_action(
+            actor=user,
+            action='REPORT_DOWNLOADED',
+            instance=report_record,
+            comment=f"Department In-charge {user.get_full_name()} downloaded and stored report for faculty {faculty.get_full_name()}"
+        )
+
+        return Response({
+            'id': str(report_record.id),
+            'title': report_record.title,
+            'faculty_name': faculty.get_full_name(),
+            'faculty_designation': getattr(faculty, 'designation', 'Faculty'),
+            'file_url': f"/api/v1/reports/{report_record.id}/download/",
+            'record_count': report_record.record_count,
+            'generated_at': report_record.generated_at,
+            'file_size': report_record.file_size,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='incharge-stored-reports')
+    def incharge_stored_reports(self, request):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response({'error': 'Unauthorized.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'results': []})
+
+        reports = GeneratedReport.objects.filter(
+            department=user.department,
+            college=user.college,
+            status=ReportStatus.COMPLETED,
+        ).exclude(
+            status=ReportStatus.ARCHIVED
+        ).select_related('faculty').order_by('-generated_at')
+
+        results = []
+        for r in reports:
+            is_merged = (r.filters_applied or {}).get('is_merged_report', False)
+            submitted_to_hod = (r.filters_applied or {}).get('submitted_to_hod', False)
+            results.append({
+                'id': str(r.id),
+                'title': r.title,
+                'faculty_id': str(r.faculty_id) if r.faculty_id else None,
+                'faculty_name': r.faculty.get_full_name() if r.faculty else (r.filters_applied or {}).get('faculty_name', 'Department Consolidated'),
+                'faculty_designation': getattr(r.faculty, 'designation', '') if r.faculty else 'Department',
+                'record_count': r.record_count,
+                'file_size': r.file_size,
+                'output_format': r.output_format,
+                'generated_at': r.generated_at,
+                'is_merged': is_merged,
+                'submitted_to_hod': submitted_to_hod,
+                'submitted_at': (r.filters_applied or {}).get('submitted_at'),
+                'hod_name': (r.filters_applied or {}).get('hod_name'),
+                'download_url': f"/api/v1/reports/{r.id}/download/",
+            })
+
+        return Response({'results': results})
+
+    @action(detail=False, methods=['post'], url_path='merge-reports')
+    def merge_reports(self, request):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response({'error': 'Only Department In-charge can merge reports.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'error': 'No assigned department.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report_ids = request.data.get('report_ids', [])
+        if isinstance(report_ids, str):
+            import json
+            try:
+                report_ids = json.loads(report_ids)
+            except Exception:
+                report_ids = [s.strip() for s in report_ids.split(',') if s.strip()]
+        elif not isinstance(report_ids, (list, tuple)):
+            report_ids = [report_ids] if report_ids else []
+
+        if not report_ids or len(report_ids) < 1:
+            return Response({'error': 'Please select at least one report to merge.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Department isolation check
+        reports = list(GeneratedReport.objects.filter(
+            id__in=report_ids,
+            department=user.department,
+            college=user.college,
+            status=ReportStatus.COMPLETED
+        ).select_related('faculty'))
+
+        if len(reports) != len(report_ids):
+            return Response(
+                {'error': 'One or more selected reports were not found or do not belong to your department.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        from pypdf import PdfWriter
+        merger = PdfWriter()
+
+        total_records = 0
+        faculty_names = []
+
+        for r in reports:
+            total_records += r.record_count
+            if r.faculty:
+                faculty_names.append(r.faculty.get_full_name())
+            if r.file and r.file.storage.exists(r.file.name):
+                merger.append(r.file.open('rb'))
+            else:
+                report_type = r.report_type or ReportType.objects.first()
+                filters = {'faculty': str(r.faculty_id)} if r.faculty_id else {'department': str(user.department_id)}
+                scoped = ReportDataService.get_scoped_data(user, filters, report_type)
+                buf = PDFReportGenerator.generate(scoped)
+                merger.append(io.BytesIO(buf if isinstance(buf, bytes) else buf.getvalue()))
+
+        out_buffer = io.BytesIO()
+        merger.write(out_buffer)
+        merger.close()
+
+        report_type = ReportType.objects.filter(code='DEPARTMENT_SUMMARY').first() or reports[0].report_type
+        dept_label = user.department.code or user.department.name
+        title = f"Consolidated Department Report — {dept_label} ({timezone.now().strftime('%d %b %Y')})"
+
+        merged_record = GeneratedReport.objects.create(
+            college=user.college,
+            report_type=report_type,
+            title=title,
+            department=user.department,
+            filters_applied={
+                'is_merged_report': True,
+                'merged_from_report_ids': [str(r.id) for r in reports],
+                'source_reports_count': len(reports),
+                'faculty_names': faculty_names,
+                'incharge_id': str(user.id),
+                'incharge_name': user.get_full_name(),
+            },
+            record_count=total_records,
+            output_format=ReportFormat.PDF,
+            status=ReportStatus.COMPLETED,
+            generated_by=user,
+        )
+
+        filename = f"Merged_Report_{dept_label}_{merged_record.id}.pdf"
+        merged_record.file.save(filename, ContentFile(out_buffer.getvalue()), save=True)
+        merged_record.file_size = merged_record.file.size
+        merged_record.save(update_fields=['file_size'])
+
+        log_action(
+            actor=user,
+            action='REPORT_MERGED',
+            instance=merged_record,
+            comment=f"In-charge {user.get_full_name()} merged {len(reports)} faculty reports into '{merged_record.title}'"
+        )
+
+        return Response({
+            'id': str(merged_record.id),
+            'title': merged_record.title,
+            'source_count': len(reports),
+            'record_count': total_records,
+            'file_size': merged_record.file_size,
+            'generated_at': merged_record.generated_at,
+            'download_url': f"/api/v1/reports/{merged_record.id}/download/",
+            'status': 'MERGED_SUCCESSFULLY',
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='submit-to-hod')
+    def submit_to_hod(self, request, pk=None):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response({'error': 'Only Department In-charge can submit reports to HOD.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'error': 'No assigned department.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report = GeneratedReport.objects.filter(pk=pk).first()
+        if not report:
+            raise Http404("Report not found.")
+
+        # Department isolation: must belong to In-charge's department
+        if report.department_id != user.department_id or report.college_id != user.college_id:
+            return Response({'error': 'Department isolation: You cannot submit reports for another department.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Find assigned HOD for this department
+        hod = User.objects.filter(
+            role='HOD',
+            department=user.department,
+            college=user.college,
+            is_active=True
+        ).first()
+
+        if not hod:
+            hod = User.objects.filter(role='HOD', college=user.college, is_active=True).first()
+
+        hod_name = hod.get_full_name() if hod else "Department HOD"
+
+        report.filters_applied = report.filters_applied or {}
+        report.filters_applied['submitted_to_hod'] = True
+        report.filters_applied['submitted_at'] = timezone.now().isoformat()
+        report.filters_applied['hod_id'] = str(hod.id) if hod else None
+        report.filters_applied['hod_name'] = hod_name
+        report.save()
+
+        if hod:
+            Notification.objects.create(
+                recipient=hod,
+                sender=user,
+                college=user.college,
+                category=NotificationCategory.REPORT,
+                notification_type='HOD_REPORT_SUBMISSION',
+                title=f"Department Merged Report Submitted: {report.title}",
+                body=f"Department In-charge {user.get_full_name()} has submitted the consolidated department report with {report.record_count} faculty records for your review.",
+                priority=NotificationPriority.HIGH,
+                related_model='GeneratedReport',
+                related_id=report.id,
+                metadata={
+                    'report_id': str(report.id),
+                    'report_title': report.title,
+                    'incharge_id': str(user.id),
+                    'incharge_name': user.get_full_name(),
+                    'department_id': str(user.department_id),
+                    'department_name': user.department.name if user.department else '',
+                    'submission_timestamp': timezone.now().isoformat(),
+                }
+            )
+
+        log_action(
+            actor=user,
+            action='REPORT_SUBMITTED_TO_HOD',
+            instance=report,
+            comment=f"Department In-charge {user.get_full_name()} submitted merged report '{report.title}' to HOD {hod_name}"
+        )
+
+        return Response({
+            'status': 'success',
+            'message': f"Merged report successfully submitted to HOD {hod_name}.",
+            'report_id': str(report.id),
+            'submitted_at': report.filters_applied['submitted_at'],
+            'hod_name': hod_name,
+        })
+
+    @action(detail=False, methods=['get'], url_path='downloaded-history')
+    def downloaded_history(self, request):
+        user = request.user
+        if user.role != 'DEPARTMENT_INCHARGE':
+            return Response({'error': 'Unauthorized.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'results': []})
+
+        reports = GeneratedReport.objects.filter(
+            department=user.department,
+            college=user.college,
+            status=ReportStatus.COMPLETED
+        ).exclude(
+            status=ReportStatus.ARCHIVED
+        ).select_related('faculty').order_by('-generated_at')
+
+        results = []
+        for r in reports:
+            results.append({
+                'id': str(r.id),
+                'title': r.title,
+                'faculty_name': r.faculty.get_full_name() if r.faculty else (r.filters_applied or {}).get('faculty_name', 'Department Consolidated'),
+                'faculty_designation': getattr(r.faculty, 'designation', '') if r.faculty else 'Department',
+                'record_count': r.record_count,
+                'file_size': r.file_size,
+                'output_format': r.output_format,
+                'generated_at': r.generated_at,
+                'is_merged': (r.filters_applied or {}).get('is_merged_report', False),
+                'submitted_to_hod': (r.filters_applied or {}).get('submitted_to_hod', False),
+                'submitted_at': (r.filters_applied or {}).get('submitted_at'),
+                'hod_name': (r.filters_applied or {}).get('hod_name'),
+                'download_url': f"/api/v1/reports/{r.id}/download/",
+            })
+
+        return Response({'results': results})

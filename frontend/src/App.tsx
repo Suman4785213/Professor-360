@@ -198,7 +198,7 @@ export function App() {
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}
       />
-      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && <AnnouncementBanner />}
+      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && user?.role !== 'DEPARTMENT_INCHARGE' && <AnnouncementBanner />}
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -207,7 +207,7 @@ export function App() {
         />
 
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && (
+          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && user?.role !== 'DEPARTMENT_INCHARGE' && (
             <OnboardingChecklist onOpenUpload={() => setIsMobileUploadOpen(true)} />
           )}
           <Routes>
@@ -389,51 +389,9 @@ export function App() {
               element={
                 <RoleRoute allowedRoles={['DEPARTMENT_INCHARGE']}>
                   <Routes>
-                    <Route
-                      path="dashboard"
-                      element={
-                        <InchargeDashboard
-                          setActiveTab={(tab) => {
-                            if (tab === 'verification') navigate('/incharge/verification');
-                          }}
-                          onOpenReview={handleOpenReview}
-                        />
-                      }
-                    />
-                    <Route path="faculty" element={<UserManagement />} />
-                    <Route
-                      path="verification"
-                      element={
-                        <VerificationQueue
-                          initialTab="pending"
-                          selectedRecord={selectedReviewRecord}
-                          onClearSelected={() => setSelectedReviewRecord(null)}
-                        />
-                      }
-                    />
-                    <Route path="verification/:id" element={<VerificationReviewDetail />} />
-                    <Route
-                      path="forwarded-records"
-                      element={
-                        <VerificationQueue
-                          initialTab="forwarded"
-                          selectedRecord={selectedReviewRecord}
-                          onClearSelected={() => setSelectedReviewRecord(null)}
-                        />
-                      }
-                    />
-                    <Route path="evidence" element={<EvidenceRepository />} />
-                    <Route path="evidence/:id" element={<EvidenceDetailView />} />
-                    <Route path="criteria" element={<CriteriaDashboard />} />
-                    <Route path="criteria/dashboard" element={<CriteriaDashboard />} />
-                    <Route path="criteria/:id" element={<CriterionDetailView />} />
-                    <Route path="metrics/:id" element={<MetricDetailView />} />
-                    <Route path="aqar" element={<AQARWorkspace />} />
-                    <Route path="ssr" element={<SSRWorkspace />} />
-                    <Route path="work-queue" element={<InchargeWorkQueue />} />
-                    <Route path="tasks" element={<TaskManagementView />} />
-                    <Route path="notifications" element={<NotificationCenter />} />
-                    <Route path="reports" element={<ReportGenerationPage />} />
+                    <Route path="dashboard" element={<InchargeDashboard initialView="dashboard" />} />
+                    <Route path="merge" element={<InchargeDashboard initialView="merge" />} />
+                    <Route path="downloads" element={<InchargeDashboard initialView="downloads" />} />
                     <Route path="*" element={<Navigate to="/incharge/dashboard" replace />} />
                   </Routes>
                 </RoleRoute>

@@ -37,6 +37,7 @@ export const NotificationCenter: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [isPrefModalOpen, setIsPrefModalOpen] = useState(false);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchNotifications();
@@ -86,6 +87,37 @@ export const NotificationCenter: React.FC = () => {
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleRespond = async (notificationId: string, responseChoice: 'Okay' | 'Done' | 'No') => {
+    setRespondingId(notificationId);
+    try {
+      const res = await apiClient.post(`/notifications/${notificationId}/respond-report-request/`, {
+        response: responseChoice,
+      });
+      setNotifications((prev) =>
+        prev.map((item) => {
+          if (item.id === notificationId) {
+            return {
+              ...item,
+              is_read: true,
+              metadata: {
+                ...item.metadata,
+                response: responseChoice,
+                response_text: res.data.response_text,
+                response_timestamp: new Date().toISOString(),
+                status: `RESPONDED_${responseChoice.toUpperCase()}`,
+              },
+            };
+          }
+          return item;
+        })
+      );
+    } catch (e) {
+      console.error('Failed to submit response:', e);
+    } finally {
+      setRespondingId(null);
     }
   };
 
@@ -343,6 +375,54 @@ export const NotificationCenter: React.FC = () => {
                         <span>From: {n.sender_name}</span>
                       )}
                     </div>
+
+                    {/* In-charge Report Request Response Section */}
+                    {(n.notification_type === 'INCHARGE_REPORT_REQUEST' || (n.metadata as any)?.request_type === 'REPORT_REQUEST') && (
+                      <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                        <p className="text-[11px] font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                          Respond to Department In-charge:
+                        </p>
+                        {(n.metadata as any)?.response ? (
+                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
+                            <Check className="w-4 h-4 text-emerald-600" />
+                            <span>
+                              Responded: <strong>{(n.metadata as any).response}</strong> — "{(n.metadata as any).response_text || ((n.metadata as any).response === 'Okay' ? 'Let me submit it soon.' : (n.metadata as any).response === 'Done' ? 'Report has been uploaded and ready for review.' : 'Unable to submit the report at this moment.')}"
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              disabled={respondingId === n.id}
+                              onClick={() => handleRespond(n.id, 'Okay')}
+                              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-50"
+                            >
+                              Okay
+                            </button>
+                            <button
+                              type="button"
+                              disabled={respondingId === n.id}
+                              onClick={() => handleRespond(n.id, 'Done')}
+                              className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-50"
+                            >
+                              Done
+                            </button>
+                            <button
+                              type="button"
+                              disabled={respondingId === n.id}
+                              onClick={() => handleRespond(n.id, 'No')}
+                              className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-50"
+                            >
+                              No
+                            </button>
+                            <span className="text-[10px] text-slate-400 italic">
+                              (Okay: "Let me submit it soon." • Done: "Report uploaded" • No: "Unable to submit")
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
