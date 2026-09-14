@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
 import { billingApi } from '../../api/billing';
-import { Department, TenantBillingInfo, Invoice, PaymentTransaction } from '../../types';
+import { Department, TenantBillingInfo, Invoice, PaymentTransaction, Plan } from '../../types';
 import {
   Building2,
   Award,
@@ -30,6 +30,9 @@ import {
   Clock,
   RefreshCw,
   Info,
+  ArrowUpRight,
+  Check,
+  X,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -132,9 +135,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [billingInfo, setBillingInfo] = useState<TenantBillingInfo | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  const [availablePlans, setAvailablePlans] = useState<Plan[]>([]);
   const [loadingPurchasing, setLoadingPurchasing] = useState<boolean>(false);
   const [purchasingError, setPurchasingError] = useState<string | null>(null);
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
+
+  // Upgrade Modal State
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState<boolean>(false);
+  const [selectedUpgradePlanCode, setSelectedUpgradePlanCode] = useState<string>('enterprise');
+  const [upgradingLoading, setUpgradingLoading] = useState<boolean>(false);
+  const [upgradeSuccessMsg, setUpgradeSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setMainView(initialView);
@@ -183,14 +193,18 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setLoadingPurchasing(true);
     setPurchasingError(null);
     try {
-      const [subData, invData, payData] = await Promise.all([
+      const [subData, invData, payData, plansData] = await Promise.all([
         billingApi.getSubscription().catch(() => null),
         billingApi.getInvoices().catch(() => []),
         billingApi.getPayments().catch(() => []),
+        billingApi.getPlans().catch(() => ({ current_plan_code: null, plans: [] })),
       ]);
       setBillingInfo(subData);
       setInvoices(invData);
       setPayments(payData);
+      if (plansData?.plans) {
+        setAvailablePlans(plansData.plans);
+      }
     } catch (err: any) {
       console.error('Error loading purchasing data:', err);
       setPurchasingError('Failed to load institutional purchasing records.');
@@ -335,7 +349,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setDownloadingInvoiceId(inv.id);
     try {
       const res = await apiClient.get(`/billing/invoices/${inv.id}/pdf/`);
-      // res.data contains HTML invoice receipt, open in printable new window
       const printWindow = window.open('', '_blank');
       if (printWindow) {
         printWindow.document.write(typeof res.data === 'string' ? res.data : JSON.stringify(res.data));
@@ -346,6 +359,25 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       alert('Unable to load invoice receipt. Please try again.');
     } finally {
       setDownloadingInvoiceId(null);
+    }
+  };
+
+  // 4. Upgrade subscription handler
+  const handleConfirmUpgrade = async (planCode: string) => {
+    setUpgradingLoading(true);
+    setUpgradeSuccessMsg(null);
+    try {
+      const res = await billingApi.changePlan({ plan_code: planCode });
+      setUpgradeSuccessMsg(
+        res.message || `Successfully upgraded institutional subscription to ${planCode.toUpperCase()}!`
+      );
+      setIsUpgradeModalOpen(false);
+      await fetchPurchasingData();
+    } catch (err: any) {
+      console.error('Failed to change plan:', err);
+      alert(err?.response?.data?.error || 'Failed to upgrade subscription plan.');
+    } finally {
+      setUpgradingLoading(false);
     }
   };
 
@@ -536,7 +568,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         Showing faculty members assigned to {deptOverview.name}.
                       </p>
                     </div>
-                    {/* Search bar */}
                     <div className="relative w-full sm:w-64">
                       <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                       <input
@@ -564,7 +595,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             className="bg-slate-50/70 rounded-2xl p-5 border border-slate-200/80 flex flex-col justify-between hover:shadow-sm transition-all"
                           >
                             <div className="flex items-start gap-3.5">
-                              {/* Profile photo */}
                               {f.photo_url ? (
                                 <img
                                   src={f.photo_url}
@@ -578,11 +608,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               )}
 
                               <div className="flex-1 min-w-0">
-                                {/* Faculty name */}
                                 <h3 className="text-sm font-bold text-slate-900 truncate">
                                   {f.full_name || `${f.first_name} ${f.last_name}`}
                                 </h3>
-                                {/* Designation */}
                                 <p className="text-xs font-semibold text-brand-700 mt-0.5">
                                   {f.designation || 'Faculty Member'}
                                 </p>
@@ -592,7 +620,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               </div>
                             </div>
 
-                            {/* Report Download Button (Per Faculty Member) */}
                             <div className="mt-5 pt-3 border-t border-slate-200/70 flex justify-end">
                               <button
                                 type="button"
@@ -801,6 +828,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // ==========================================
   // VIEW: MAIN DASHBOARD — TOP EXECUTIVE SWITCHER
   // ==========================================
+  const currentPlanCode = billingInfo?.subscription?.plan_details?.code || 'professional';
+
   return (
     <div className="space-y-6 animate-in fade-in-50 duration-200">
       {/* Executive Header Banner */}
@@ -861,6 +890,23 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </button>
       </div>
 
+      {/* Upgrade Success Notification */}
+      {upgradeSuccessMsg && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center justify-between animate-in fade-in-50">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-5 h-5 text-emerald-600" />
+            <span>{upgradeSuccessMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUpgradeSuccessMsg(null)}
+            className="text-xs underline font-bold cursor-pointer ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* ======================================================== */}
       {/* SECTION 1: ACADEMIC DEPARTMENTS (11 SELECTABLE CARDS)   */}
       {/* ======================================================== */}
@@ -892,7 +938,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     className="group text-left bg-white hover:bg-slate-50/80 rounded-2xl p-5 border border-slate-200/80 hover:border-brand-500 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
-                      {/* Top Row: Department Code & Arrow */}
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-indigo-50 group-hover:bg-brand-600 text-indigo-700 group-hover:text-white transition-colors">
                           {dept.code}
@@ -900,13 +945,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 group-hover:translate-x-0.5 transition-all" />
                       </div>
 
-                      {/* Department Name */}
                       <h3 className="font-bold text-slate-900 text-sm leading-snug group-hover:text-brand-600 transition-colors">
                         {dept.name}
                       </h3>
                     </div>
 
-                    {/* Summary Metric Pills */}
                     <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
                       <span className="font-semibold text-slate-700">
                         {dept.faculty_count || 3} Faculty
@@ -939,9 +982,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             </div>
           ) : (
             <>
-              {/* Purchasing Overview Card */}
+              {/* Purchasing Overview Card with UPGRADE BUTTON */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-6">
                   <div>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold uppercase tracking-wider mb-2">
                       <ShieldCheck className="w-3.5 h-3.5" />
@@ -955,12 +998,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     </p>
                   </div>
 
-                  <div className="text-left sm:text-right bg-slate-50 p-4 rounded-2xl border border-slate-200/70">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Annual License Fee</span>
-                    <span className="text-xl font-black text-slate-900">
-                      ₹{billingInfo?.subscription?.plan_details?.price_yearly || '1,490.00'}
-                      <span className="text-xs font-semibold text-slate-500 ml-1">/ year (+ 18% GST)</span>
-                    </span>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    <div className="text-left sm:text-right bg-slate-50 p-4 rounded-2xl border border-slate-200/70">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Annual License Fee</span>
+                      <span className="text-xl font-black text-slate-900">
+                        ₹{billingInfo?.subscription?.plan_details?.price_yearly || '1,490.00'}
+                        <span className="text-xs font-semibold text-slate-500 ml-1">/ year (+ 18% GST)</span>
+                      </span>
+                    </div>
+
+                    {/* PROMINENT UPGRADE SUBSCRIPTION BUTTON */}
+                    <button
+                      type="button"
+                      id="upgrade-subscription-btn"
+                      onClick={() => {
+                        setSelectedUpgradePlanCode('enterprise');
+                        setIsUpgradeModalOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-4 rounded-2xl bg-gradient-to-r from-brand-600 via-indigo-600 to-indigo-700 hover:from-brand-700 hover:to-indigo-800 text-white font-bold text-sm shadow-md shadow-brand-500/25 hover:shadow-lg transition-all cursor-pointer shrink-0"
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+                      <span>Upgrade Subscription</span>
+                      <ArrowUpRight className="w-4 h-4 opacity-75" />
+                    </button>
                   </div>
                 </div>
 
@@ -1008,6 +1068,109 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     </span>
                     <p className="text-sm font-bold text-emerald-700 mt-1">PAID IN FULL</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">Bank Wire / NEFT</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* AVAILABLE SUBSCRIPTION TIERS & UPGRADE COMPARISON */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Institutional Subscription Tiers & Upgrades</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Compare plan limits and upgrade your institutional scale at any time.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1 rounded-full border border-brand-200">
+                    Current: {billingInfo?.subscription?.plan_details?.name || 'Professional Tier'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Starter Plan Card */}
+                  <div className="rounded-2xl p-5 border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
+                    <div>
+                      <span className="text-xs font-bold uppercase text-slate-500">Starter Tier</span>
+                      <h4 className="text-lg font-black text-slate-900 mt-1">₹490 <span className="text-xs font-semibold text-slate-500">/ year</span></h4>
+                      <p className="text-xs text-slate-600 mt-2">Essential QA workflows for single department or pilot institutions.</p>
+                      
+                      <ul className="mt-4 space-y-2 text-xs text-slate-700">
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-600" /> 5 Academic Departments</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-600" /> 50 Faculty Accounts</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-600" /> 5.0 GB Storage</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-600" /> 50 Reports / month</li>
+                      </ul>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-200 text-center">
+                      <span className="text-xs font-semibold text-slate-400">Basic Tier</span>
+                    </div>
+                  </div>
+
+                  {/* Professional Plan Card (Current) */}
+                  <div className="rounded-2xl p-5 border-2 border-brand-500 bg-brand-50/30 flex flex-col justify-between relative shadow-sm">
+                    <span className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-600 text-white shadow-xs">
+                      Current Plan
+                    </span>
+                    <div>
+                      <span className="text-xs font-bold uppercase text-brand-700">Professional Tier</span>
+                      <h4 className="text-lg font-black text-slate-900 mt-1">₹1,490 <span className="text-xs font-semibold text-slate-500">/ year</span></h4>
+                      <p className="text-xs text-slate-600 mt-2">Multi-department accreditation, automated reports & AI parsing.</p>
+                      
+                      <ul className="mt-4 space-y-2 text-xs text-slate-700">
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-brand-600" /> 20 Academic Departments</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-brand-600" /> 300 Faculty Accounts</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-brand-600" /> 25.0 GB Storage</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-brand-600" /> 150 Reports / month</li>
+                        <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-brand-600" /> 500 AI Operations / mo</li>
+                      </ul>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-brand-200 text-center">
+                      <span className="text-xs font-bold text-emerald-700 inline-flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Currently Active & Paid
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Enterprise Plan Card (Upgrade Option) */}
+                  <div className="rounded-2xl p-5 border-2 border-indigo-500 bg-gradient-to-b from-indigo-50/50 to-white flex flex-col justify-between relative shadow-md">
+                    <span className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white shadow-xs">
+                      Recommended Upgrade
+                    </span>
+                    <div>
+                      <span className="text-xs font-bold uppercase text-indigo-700">Enterprise Tier</span>
+                      <h4 className="text-lg font-black text-slate-900 mt-1">₹2,990 <span className="text-xs font-semibold text-slate-500">/ year</span></h4>
+                      <p className="text-xs text-slate-600 mt-2">Full-scale institutional governance, unlimited scaling & multi-campus AI.</p>
+                      
+                      <ul className="mt-4 space-y-2 text-xs text-slate-700">
+                        <li className="flex items-center gap-2 font-semibold text-indigo-900"><Check className="w-3.5 h-3.5 text-indigo-600" /> 60 Academic Departments</li>
+                        <li className="flex items-center gap-2 font-semibold text-indigo-900"><Check className="w-3.5 h-3.5 text-indigo-600" /> 2,000 Faculty Accounts</li>
+                        <li className="flex items-center gap-2 font-semibold text-indigo-900"><Check className="w-3.5 h-3.5 text-indigo-600" /> 100.0 GB Cloud Storage</li>
+                        <li className="flex items-center gap-2 font-semibold text-indigo-900"><Check className="w-3.5 h-3.5 text-indigo-600" /> 1,000 Reports / month</li>
+                        <li className="flex items-center gap-2 font-semibold text-indigo-900"><Check className="w-3.5 h-3.5 text-indigo-600" /> 5,000 AI Operations / mo</li>
+                        <li className="flex items-center gap-2 font-semibold text-indigo-900"><Check className="w-3.5 h-3.5 text-indigo-600" /> Priority 24/7 SLA Support</li>
+                      </ul>
+                    </div>
+
+                    <div className="mt-5 pt-3 border-t border-indigo-100">
+                      {currentPlanCode === 'enterprise' ? (
+                        <div className="text-center py-2 text-xs font-bold text-emerald-700 inline-flex items-center justify-center gap-1 w-full">
+                          <CheckCircle2 className="w-4 h-4" /> Active Plan
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          id="upgrade-to-enterprise-card-btn"
+                          onClick={() => {
+                            setSelectedUpgradePlanCode('enterprise');
+                            setIsUpgradeModalOpen(true);
+                          }}
+                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Upgrade to Enterprise Tier</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1063,7 +1226,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-500">267 faculty licenses remaining for expansion</p>
+                    <p className="text-[11px] text-slate-500">Active faculty licenses included</p>
                   </div>
 
                   {/* Secure Storage Quota */}
@@ -1179,7 +1342,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                 {inv.issue_date || new Date().toISOString().slice(0, 10)}
                               </td>
                               <td className="py-3.5 px-4 text-slate-700 font-medium">
-                                Institutional Annual License (11 Departments)
+                                Institutional Annual License
                               </td>
                               <td className="py-3.5 px-4 text-slate-600">
                                 ₹{inv.amount || '1,490.00'}
@@ -1298,6 +1461,132 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* UPGRADE SUBSCRIPTION MODAL                               */}
+      {/* ======================================================== */}
+      {isUpgradeModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in-50"
+        >
+          <div
+            className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setIsUpgradeModalOpen(false)}
+              className="absolute top-6 right-6 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-start gap-3.5 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                <Sparkles className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div>
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 tracking-wider">
+                  Scale Your Institution
+                </span>
+                <h3 className="text-xl font-black text-slate-900 mt-1">Upgrade to Enterprise Tier</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Unlock higher faculty limits, unlimited departments, and dedicated AI intelligence.
+                </p>
+              </div>
+            </div>
+
+            {/* Plan Comparison Highlights */}
+            <div className="space-y-4 my-6">
+              <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100/80 space-y-2.5">
+                <p className="text-xs font-bold text-indigo-900 uppercase tracking-wider">Enterprise Inclusions:</p>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-700">
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span><strong>60</strong> Academic Departments</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span><strong>2,000</strong> Faculty Licenses</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span><strong>100 GB</strong> Cloud Storage</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span><strong>1,000</strong> Monthly Reports</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span><strong>5,000</strong> AI Operations / mo</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span>Priority 24/7 Support & SLA</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pricing Breakdown */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5 text-xs text-slate-600">
+                <div className="flex justify-between">
+                  <span>Annual Subscription Fee:</span>
+                  <span className="font-bold text-slate-800">₹2,990.00 / year</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>GST (18%):</span>
+                  <span className="font-semibold text-slate-700">₹538.20</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-slate-200 text-sm font-black text-slate-900">
+                  <span>Total Payable:</span>
+                  <span className="text-indigo-700">₹3,528.20 / year</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsUpgradeModalOpen(false)}
+                disabled={upgradingLoading}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                id="confirm-upgrade-btn"
+                disabled={upgradingLoading}
+                onClick={() => handleConfirmUpgrade(selectedUpgradePlanCode)}
+                className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-md cursor-pointer ${
+                  upgradingLoading
+                    ? 'bg-slate-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 shadow-brand-500/25'
+                }`}
+              >
+                {upgradingLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing Upgrade...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>Confirm & Upgrade to Enterprise Tier</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
