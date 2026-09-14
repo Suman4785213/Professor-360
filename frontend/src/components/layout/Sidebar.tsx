@@ -50,27 +50,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
     switch (role) {
       case 'SUPER_ADMIN':
         return [
-          { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { path: '/ai/copilot', label: 'IQAC Copilot', icon: Sparkles },
-          { path: '/admin/control-center', label: 'SaaS Control Center', icon: Cpu },
-          { path: '/admin/support', label: 'Support Desk', icon: LifeBuoy },
-          { path: '/admin/system-health', label: 'System Health', icon: ActivityIcon },
-          { path: '/admin/jobs', label: 'Task Monitor', icon: Cpu },
-          { path: '/admin/security', label: 'Security Threats', icon: ShieldCheck },
-          { path: '/admin/incidents', label: 'Incidents Registry', icon: AlertOctagon },
-          { path: '/admin/billing', label: 'Billing & Revenue', icon: CreditCard },
-          { path: '/admin/colleges', label: 'Colleges', icon: Building },
-          { path: '/admin/users', label: 'Users', icon: Users },
-          { path: '/admin/departments', label: 'Departments', icon: Building2 },
-          { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
-          { path: '/tasks', label: 'Task Management', icon: CheckSquare },
-          { path: '/imports', label: 'Import Center', icon: UploadCloud },
-          { path: '/settings/integrations', label: 'API & Integrations', icon: Globe },
-          { path: '/communication', label: 'Communication Center', icon: Megaphone },
-          { path: '/support', label: 'Knowledge Base', icon: BookOpen },
-          { path: '/notifications', label: 'Notifications', icon: Bell },
-          { path: '/admin/settings', label: 'Settings', icon: Settings },
-          { path: '/admin/activity-logs', label: 'Activity Logs', icon: ActivityIcon },
+          { path: '/admin/dashboard', label: 'College Management', icon: Building },
+          { path: '/admin/system-health', label: 'Database & System Health', icon: ActivityIcon },
+          { path: '/admin/jobs', label: 'Database & Jobs Monitor', icon: Cpu },
+          { path: '/admin/activity-logs', label: 'Security & Audit Trail', icon: ShieldCheck },
         ];
       case 'COLLEGE_MANAGEMENT':
         return [
@@ -193,9 +176,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
             <GraduationCap className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-sm font-black text-white tracking-wide block">IQAC SAAS</span>
+            <span className="text-sm font-black text-white tracking-wide block">Professor360</span>
             <span className="text-[10px] text-brand-400 font-semibold uppercase tracking-wider block">
-              Quality Assurance
+              {role === 'SUPER_ADMIN' ? 'Product Administration' : 'Quality Assurance'}
             </span>
           </div>
         </div>
