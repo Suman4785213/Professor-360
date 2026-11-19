@@ -27,9 +27,9 @@ export const DashboardRouter: React.FC<DashboardRouterProps> = ({
     case 'FACULTY':
       return <FacultyDashboard setActiveTab={setActiveTab} onOpenUploadModal={onOpenUploadModal} />;
     case 'DEPARTMENT_INCHARGE':
-      return <InchargeDashboard setActiveTab={setActiveTab} onOpenReview={onOpenReview} />;
+      return <InchargeDashboard initialView="dashboard" />;
     case 'HOD':
-      return <HODDashboard setActiveTab={setActiveTab} onOpenReview={onOpenReview} />;
+      return <HODDashboard initialView="downloads" />;
     case 'IQAC':
       return <IQACDashboard />;
     case 'COLLEGE_MANAGEMENT':

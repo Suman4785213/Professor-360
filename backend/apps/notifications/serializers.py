@@ -1,3 +1,4 @@
+from core.serializers import TenantRelationsMixin
 from rest_framework import serializers
 from apps.notifications.models import (
     Notification,
@@ -159,7 +160,7 @@ class TaskCommentSerializer(serializers.ModelSerializer):
         return obj.author.email if obj.author else ''
 
 
-class IQACTaskSerializer(serializers.ModelSerializer):
+class IQACTaskSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
     owner_email = serializers.SerializerMethodField()
     creator_name = serializers.SerializerMethodField()
@@ -218,6 +219,22 @@ class IQACTaskSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        user = self.context['request'].user
+        owner = attrs.get('owner', getattr(self.instance, 'owner', None))
+        department = attrs.get('department', getattr(self.instance, 'department', None))
+        if not owner:
+            raise serializers.ValidationError({'owner': 'An owner is required.'})
+        if user.role == 'FACULTY' and owner != user:
+            raise serializers.ValidationError({'owner': 'Faculty may assign tasks only to themselves.'})
+        if user.role in ('HOD', 'DEPARTMENT_INCHARGE'):
+            if not user.department_id or owner.department_id != user.department_id or (department and department.pk != user.department_id):
+                raise serializers.ValidationError({'department': 'Tasks must remain in your assigned department.'})
+        if 'status' in attrs and attrs['status'] != getattr(self.instance, 'status', 'TODO'):
+            raise serializers.ValidationError({'status': 'Use a task status action.'})
+        return attrs
 
     def get_owner_name(self, obj):
         return obj.owner.get_full_name() if obj.owner else ''

@@ -118,9 +118,9 @@ class EvidenceStatsService:
         if user.role == 'FACULTY':
             ev_qs = ev_qs.filter(faculty=user)
             act_qs = act_qs.filter(faculty=user)
-        elif user.role in ['HOD', 'DEPARTMENT_INCHARGE'] and user.department:
-            ev_qs = ev_qs.filter(department=user.department)
-            act_qs = act_qs.filter(department=user.department)
+        elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
+            ev_qs = ev_qs.filter(department=user.department) if user.department_id else ev_qs.none()
+            act_qs = act_qs.filter(department=user.department) if user.department_id else act_qs.none()
 
         # Active academic year
         current_ay = AcademicYear.objects.filter(college=college, is_current=True).first()

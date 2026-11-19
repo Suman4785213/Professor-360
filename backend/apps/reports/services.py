@@ -37,6 +37,21 @@ class ReportDataService:
         if not college and user.role != 'SUPER_ADMIN':
             raise PermissionDenied("User is not associated with an institution.")
 
+        # Reject foreign filter IDs before they can become report foreign keys or metadata.
+        from django.apps import apps
+        references = {'academic_year': 'academic_years.AcademicYear', 'department': 'departments.Department',
+                      'faculty': 'accounts.User', 'category': 'activities.ActivityCategory',
+                      'criterion': 'criteria.Criterion', 'metric': 'criteria.Metric'}
+        for field, label in references.items():
+            if not filters.get(field):
+                continue
+            obj = apps.get_model(label).objects.filter(pk=filters[field]).first()
+            if not obj or (user.role != 'SUPER_ADMIN' and obj.college_id not in
+                           ((None, user.college_id) if field == 'category' else (user.college_id,))):
+                raise ValidationError({field: 'Invalid or inaccessible filter.'})
+            if field == 'faculty' and user.role in ('HOD', 'DEPARTMENT_INCHARGE') and obj.department_id != user.department_id:
+                raise PermissionDenied('Faculty must belong to your department.')
+
         # Base verified activities query (RULE 1: Only IQAC_VERIFIED / VERIFIED_EVIDENCE)
         activities_qs = Activity.objects.filter(
             status__in=[ActivityStatus.IQAC_VERIFIED, ActivityStatus.VERIFIED_EVIDENCE]

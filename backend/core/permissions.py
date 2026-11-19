@@ -75,6 +75,16 @@ class IsSuperAdminOrIQAC(BasePermission):
         )
 
 
+class IsIQACOrManagement(BasePermission):
+    """Only IQAC Coordinator or College Management can access."""
+    def has_permission(self, request, view):
+        return bool(
+            request.user and
+            request.user.is_authenticated and
+            request.user.role in ('IQAC', 'COLLEGE_MANAGEMENT')
+        )
+
+
 class IsCollegeStaff(BasePermission):
     """Any authenticated user belonging to a college (non-super-admin)."""
     def has_permission(self, request, view):

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
 import { Role } from './types';
+import { ResetPasswordView } from './features/auth/ResetPasswordView';
 import { LoginView } from './features/auth/LoginView';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -89,11 +90,11 @@ export function getRoleDashboardPath(role?: Role | null): string {
     case 'IQAC':
       return '/iqac/dashboard';
     case 'HOD':
-      return '/hod/dashboard';
+      return '/hod/downloads';
     case 'DEPARTMENT_INCHARGE':
       return '/incharge/dashboard';
     case 'FACULTY':
-      return '/faculty/dashboard';
+      return '/faculty/profile';
     default:
       return '/login';
   }
@@ -132,6 +133,8 @@ export function App() {
   const { isAuthenticated, isLoading, loadUser, user } = useAuthStore();
   const navigate = useNavigate();
 
+  const location = useLocation();
+
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isCreateCollegeOpen, setIsCreateCollegeOpen] = useState(false);
   const [selectedReviewRecord, setSelectedReviewRecord] = useState<VerificationRecord | null>(null);
@@ -157,6 +160,8 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  if (location.pathname === '/reset-password') return <ResetPasswordView />;
 
   if (isLoading) {
     return (
@@ -198,7 +203,7 @@ export function App() {
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}
       />
-      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && user?.role !== 'DEPARTMENT_INCHARGE' && <AnnouncementBanner />}
+      {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && user?.role !== 'DEPARTMENT_INCHARGE' && user?.role !== 'HOD' && user?.role !== 'FACULTY' && <AnnouncementBanner />}
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -207,7 +212,7 @@ export function App() {
         />
 
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && user?.role !== 'DEPARTMENT_INCHARGE' && (
+          {user?.role !== 'SUPER_ADMIN' && user?.role !== 'COLLEGE_MANAGEMENT' && user?.role !== 'IQAC' && user?.role !== 'DEPARTMENT_INCHARGE' && user?.role !== 'HOD' && user?.role !== 'FACULTY' && (
             <OnboardingChecklist onOpenUpload={() => setIsMobileUploadOpen(true)} />
           )}
           <Routes>
@@ -339,45 +344,10 @@ export function App() {
               element={
                 <RoleRoute allowedRoles={['HOD']}>
                   <Routes>
-                    <Route
-                      path="dashboard"
-                      element={
-                        <HODDashboard
-                          setActiveTab={(tab) => {
-                            if (tab === 'verification') navigate('/hod/verification');
-                            else if (tab === 'faculty') navigate('/hod/faculty');
-                          }}
-                          onOpenReview={handleOpenReview}
-                        />
-                      }
-                    />
-                    <Route path="faculty" element={<UserManagement />} />
-                    <Route path="programs" element={<ProgramList />} />
-                    <Route
-                      path="verification"
-                      element={
-                        <VerificationQueue
-                          initialTab="pending"
-                          selectedRecord={selectedReviewRecord}
-                          onClearSelected={() => setSelectedReviewRecord(null)}
-                        />
-                      }
-                    />
-                    <Route path="verification/:id" element={<VerificationReviewDetail />} />
-                    <Route path="evidence" element={<EvidenceRepository />} />
-                    <Route path="evidence/:id" element={<EvidenceDetailView />} />
-                    <Route path="criteria" element={<CriteriaDashboard />} />
-                    <Route path="criteria/dashboard" element={<CriteriaDashboard />} />
-                    <Route path="criteria/:id" element={<CriterionDetailView />} />
-                    <Route path="metrics/:id" element={<MetricDetailView />} />
-                    <Route path="aqar" element={<AQARWorkspace />} />
-                    <Route path="ssr" element={<SSRWorkspace />} />
-                    <Route path="work-queue" element={<HODWorkQueue />} />
-                    <Route path="tasks" element={<TaskManagementView />} />
-                    <Route path="notifications" element={<NotificationCenter />} />
-                    <Route path="reports" element={<ReportGenerationPage />} />
-                    <Route path="analytics" element={<DepartmentAnalyticsDashboard />} />
-                    <Route path="*" element={<Navigate to="/hod/dashboard" replace />} />
+                    <Route path="downloads" element={<HODDashboard initialView="downloads" />} />
+                    <Route path="submission" element={<HODDashboard initialView="submission" />} />
+                    <Route path="dashboard" element={<Navigate to="/hod/downloads" replace />} />
+                    <Route path="*" element={<Navigate to="/hod/downloads" replace />} />
                   </Routes>
                 </RoleRoute>
               }
@@ -404,39 +374,9 @@ export function App() {
               element={
                 <RoleRoute allowedRoles={['FACULTY']}>
                   <Routes>
-                    <Route
-                      path="dashboard"
-                      element={
-                        <FacultyDashboard
-                          setActiveTab={(tab) => {
-                            if (tab === 'profile') navigate('/faculty/profile');
-                            else if (tab === 'activities') navigate('/faculty/activities');
-                          }}
-                          onOpenUploadModal={() => navigate('/faculty/activities/new')}
-                        />
-                      }
-                    />
+                    <Route path="dashboard" element={<FacultyProfileView />} />
                     <Route path="profile" element={<FacultyProfileView />} />
-                    <Route
-                      path="activities"
-                      element={<ActivityList onOpenUploadModal={() => navigate('/faculty/activities/new')} />}
-                    />
-                    <Route path="activities/new" element={<ActivityFormPage />} />
-                    <Route path="activities/:id/edit" element={<ActivityFormPage />} />
-                    <Route path="submissions" element={<MySubmissions />} />
-                    <Route path="submissions/:id" element={<SubmissionDetail />} />
-                    <Route path="my-evidence" element={<EvidenceRepository />} />
-                    <Route path="my-evidence/:id" element={<EvidenceDetailView />} />
-                    <Route path="criteria" element={<CriteriaDashboard />} />
-                    <Route path="criteria/dashboard" element={<CriteriaDashboard />} />
-                    <Route path="criteria/:id" element={<CriterionDetailView />} />
-                    <Route path="metrics/:id" element={<MetricDetailView />} />
-                    <Route path="analytics" element={<FacultyAnalyticsDashboard />} />
-                    <Route path="workspace" element={<FacultyWorkspace />} />
-                    <Route path="tasks" element={<TaskManagementView />} />
-                    <Route path="notifications" element={<NotificationCenter />} />
-                    <Route path="reports" element={<ReportGenerationPage />} />
-                    <Route path="*" element={<Navigate to="/faculty/dashboard" replace />} />
+                    <Route path="*" element={<Navigate to="/faculty/profile" replace />} />
                   </Routes>
                 </RoleRoute>
               }

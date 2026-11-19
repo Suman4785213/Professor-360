@@ -1,3 +1,4 @@
+from .retries import report_retry
 """
 Views for Reports app — Phase 6: Automated Report Generation Engine
 Endpoints for Report Types, Custom Templates, Preview, Generation, History, and Secure Downloads.
@@ -31,7 +32,7 @@ from .serializers import (
 from .services import ReportDataService, ReportGenerationCoordinator, PDFReportGenerator
 
 
-class ReportTypeViewSet(viewsets.ModelViewSet):
+class ReportTypeViewSet(TenantMixin, viewsets.ModelViewSet):
     """
     Configurable catalog of institutional report types (Section 2).
     """
@@ -190,7 +191,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
             qs = qs.filter(faculty=user)
         elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
             if user.department:
-                qs = qs.filter(Q(department=user.department) | Q(department__isnull=True))
+                qs = qs.filter(department=user.department)
             else:
                 qs = qs.none()
 
@@ -222,7 +223,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         filters = serializer.validated_data
 
         try:
-            report_type = ReportType.objects.get(id=filters['report_type'])
+            report_type = ReportType.objects.filter(Q(college=request.user.college) | Q(college__isnull=True) if request.user.role != 'SUPER_ADMIN' else Q()).get(id=filters['report_type'])
         except ReportType.DoesNotExist:
             raise ValidationError({'report_type': 'Report type not found.'})
 
@@ -245,6 +246,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         })
 
     @action(detail=False, methods=['post'])
+    @report_retry
     def generate(self, request):
         """
         Generates official PDF, Excel, or Word report and saves it to history (Section 4, 15).
@@ -254,7 +256,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         data = serializer.validated_data
 
         try:
-            report_type = ReportType.objects.get(id=data['report_type'])
+            report_type = ReportType.objects.filter(Q(college=request.user.college) | Q(college__isnull=True) if request.user.role != 'SUPER_ADMIN' else Q()).get(id=data['report_type'])
         except ReportType.DoesNotExist:
             raise ValidationError({'report_type': 'Report type not found.'})
 
@@ -262,7 +264,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         tpl_id = data.get('template')
         if tpl_id:
             try:
-                template = ReportTemplate.objects.get(id=tpl_id, is_active=True)
+                template = ReportTemplate.objects.filter(Q(college=request.user.college) | Q(college__isnull=True) if request.user.role != 'SUPER_ADMIN' else Q()).get(id=tpl_id, is_active=True)
             except ReportTemplate.DoesNotExist:
                 raise ValidationError({'template': 'Selected report template not found.'})
 
@@ -312,22 +314,9 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         Secure authenticated file download checking role permissions (Section 21).
         """
         user = request.user
-        college = user.college if user.role != 'SUPER_ADMIN' else getattr(user, 'selected_college', user.college)
-        report_qs = GeneratedReport.objects.all()
-        if college:
-            report_qs = report_qs.filter(college=college)
-        report = report_qs.filter(pk=pk).first()
-        if not report:
-            raise Http404("Report not found.")
-
+        report = self.get_object()
         if not report.file or not report.file.storage.exists(report.file.name):
-            raise Http404("Report file does not exist or has been removed.")
-        # Strict permission check: Faculty only own, HOD only assigned department
-        if user.role == 'FACULTY' and report.faculty_id != user.id:
-            raise PermissionDenied("You are not authorized to download this report.")
-        elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
-            if report.department_id and report.department_id != user.department_id:
-                raise PermissionDenied("You can only download reports for your assigned department.")
+            raise Http404('Report file not found.')
 
         # Log download audit event
         log_action(
@@ -372,6 +361,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         return Response({'status': 'Report archived successfully', 'id': str(report.id)})
 
     @action(detail=False, methods=['post'], url_path='incharge-faculty-report')
+    @report_retry
     def incharge_faculty_report(self, request):
         user = request.user
         if user.role != 'DEPARTMENT_INCHARGE':
@@ -482,6 +472,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         return Response({'results': results})
 
     @action(detail=False, methods=['post'], url_path='merge-reports')
+    @report_retry
     def merge_reports(self, request):
         user = request.user
         if user.role != 'DEPARTMENT_INCHARGE':
@@ -515,6 +506,9 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
                 {'error': 'One or more selected reports were not found or do not belong to your department.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        if any(r.output_format != ReportFormat.PDF for r in reports):
+            return Response({'error': 'Only PDF reports can be merged.'}, status=400)
 
         from pypdf import PdfWriter
         merger = PdfWriter()
@@ -586,6 +580,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='submit-to-hod')
+    @report_retry
     def submit_to_hod(self, request, pk=None):
         user = request.user
         if user.role != 'DEPARTMENT_INCHARGE':
@@ -610,7 +605,7 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
         ).first()
 
         if not hod:
-            hod = User.objects.filter(role='HOD', college=user.college, is_active=True).first()
+            return Response({'error': 'No active HOD assigned to this department.'}, status=400)
 
         hod_name = hod.get_full_name() if hod else "Department HOD"
 
@@ -694,3 +689,209 @@ class ReportViewSet(TenantMixin, viewsets.GenericViewSet):
             })
 
         return Response({'results': results})
+
+    @action(detail=False, methods=['get'], url_path='hod-reports')
+    def hod_reports(self, request):
+        user = request.user
+        if user.role != 'HOD':
+            return Response({'error': 'Unauthorized. Only HOD can access this endpoint.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'results': []})
+
+        reports = GeneratedReport.objects.filter(
+            department=user.department,
+            college=user.college,
+            status=ReportStatus.COMPLETED
+        ).exclude(
+            status=ReportStatus.ARCHIVED
+        ).select_related('faculty', 'generated_by').order_by('-generated_at')
+
+        results = []
+        for r in reports:
+            fa = r.filters_applied or {}
+            results.append({
+                'id': str(r.id),
+                'title': r.title,
+                'faculty_name': r.faculty.get_full_name() if r.faculty else fa.get('faculty_name', 'Consolidated Department'),
+                'incharge_name': fa.get('incharge_name') or (r.generated_by.get_full_name() if r.generated_by else 'Department In-charge'),
+                'record_count': r.record_count,
+                'file_size': r.file_size,
+                'output_format': r.output_format,
+                'generated_at': r.generated_at,
+                'is_merged': fa.get('is_merged_report', False),
+                'submitted_to_hod': fa.get('submitted_to_hod', False),
+                'submitted_at': fa.get('submitted_at'),
+                'hod_downloaded': fa.get('hod_downloaded', False),
+                'hod_downloaded_at': fa.get('hod_downloaded_at'),
+                'submitted_to_admins': fa.get('submitted_to_admins', False),
+                'submitted_to_admins_at': fa.get('submitted_to_admins_at'),
+                'download_url': f"/api/v1/reports/{r.id}/download/",
+            })
+
+        return Response({'results': results})
+
+    @action(detail=False, methods=['get'], url_path='hod-downloaded-reports')
+    def hod_downloaded_reports(self, request):
+        user = request.user
+        if user.role != 'HOD':
+            return Response({'error': 'Unauthorized. Only HOD can access this endpoint.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'results': []})
+
+        # All reports that have been received/sent to HOD or downloaded by HOD for this department
+        reports = GeneratedReport.objects.filter(
+            department=user.department,
+            college=user.college,
+            status=ReportStatus.COMPLETED
+        ).exclude(
+            status=ReportStatus.ARCHIVED
+        ).select_related('faculty', 'generated_by').order_by('-generated_at')
+
+        results = []
+        for r in reports:
+            fa = r.filters_applied or {}
+            # Show in HOD's downloaded/received section if it was submitted to HOD, downloaded by HOD, or submitted to admins
+            is_hod_relevant = (
+                fa.get('submitted_to_hod') or
+                fa.get('hod_downloaded') or
+                fa.get('submitted_to_admins') or
+                fa.get('is_merged_report')
+            )
+            if is_hod_relevant:
+                results.append({
+                    'id': str(r.id),
+                    'title': r.title,
+                    'faculty_name': r.faculty.get_full_name() if r.faculty else fa.get('faculty_name', 'Consolidated Department'),
+                    'incharge_name': fa.get('incharge_name') or (r.generated_by.get_full_name() if r.generated_by else 'Department In-charge'),
+                    'record_count': r.record_count,
+                    'file_size': r.file_size,
+                    'output_format': r.output_format,
+                    'generated_at': r.generated_at,
+                    'is_merged': fa.get('is_merged_report', False),
+                    'submitted_to_hod': fa.get('submitted_to_hod', False),
+                    'submitted_at': fa.get('submitted_at'),
+                    'hod_downloaded': fa.get('hod_downloaded', False),
+                    'hod_downloaded_at': fa.get('hod_downloaded_at'),
+                    'submitted_to_admins': fa.get('submitted_to_admins', False),
+                    'submitted_to_admins_at': fa.get('submitted_to_admins_at'),
+                    'download_url': f"/api/v1/reports/{r.id}/download/",
+                })
+
+        return Response({'results': results})
+
+    @action(detail=True, methods=['post'], url_path='hod-download')
+    @report_retry
+    def hod_download(self, request, pk=None):
+        user = request.user
+        if user.role != 'HOD':
+            return Response({'error': 'Unauthorized. Only HOD can perform this download.'}, status=status.HTTP_403_FORBIDDEN)
+
+        report = GeneratedReport.objects.filter(pk=pk).first()
+        if not report:
+            raise Http404("Report not found.")
+
+        # Strict department isolation
+        if report.department_id != user.department_id or report.college_id != user.college_id:
+            return Response({'error': 'Department isolation: You cannot download reports for another department.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Mark as downloaded in HOD profile
+        report.filters_applied = report.filters_applied or {}
+        report.filters_applied['hod_downloaded'] = True
+        report.filters_applied['hod_downloaded_at'] = timezone.now().isoformat()
+        report.save(update_fields=['filters_applied'])
+
+        log_action(
+            actor=user,
+            action='REPORT_DOWNLOADED',
+            instance=report,
+            comment=f"HOD {user.get_full_name()} downloaded and stored report '{report.title}' in HOD profile"
+        )
+
+        return Response({
+            'status': 'success',
+            'message': 'Report downloaded and stored in HOD downloaded reports section.',
+            'id': str(report.id),
+            'title': report.title,
+            'download_url': f"/api/v1/reports/{report.id}/download/",
+        })
+
+    @action(detail=True, methods=['post'], url_path='submit-to-admins')
+    @report_retry
+    def submit_to_admins(self, request, pk=None):
+        user = request.user
+        if user.role != 'HOD':
+            return Response({'error': 'Only Head of Department (HOD) can submit reports to Admins.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.department:
+            return Response({'error': 'HOD must have an assigned department.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report = GeneratedReport.objects.filter(pk=pk).first()
+        if not report:
+            raise Http404("Report not found.")
+
+        # Strict department isolation
+        if report.department_id != user.department_id or report.college_id != user.college_id:
+            return Response({'error': 'Department isolation: You cannot submit reports for another department.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Update report metadata
+        now_iso = timezone.now().isoformat()
+        report.filters_applied = report.filters_applied or {}
+        report.filters_applied['submitted_to_admins'] = True
+        report.filters_applied['submitted_to_admins_at'] = now_iso
+        report.filters_applied['submitted_by_hod_id'] = str(user.id)
+        report.filters_applied['submitted_by_hod_name'] = user.get_full_name()
+        report.save(update_fields=['filters_applied'])
+
+        # Notify Management (Admin2) and IQAC (Admin3)
+        admin_recipients = list(User.objects.filter(
+            college=user.college,
+            role__in=['COLLEGE_MANAGEMENT', 'IQAC'],
+            is_active=True
+        ))
+
+        dept_name = user.department.name if user.department else (report.department.name if report.department else '')
+        dept_code = user.department.code if user.department else (report.department.code if report.department else '')
+
+        for admin in admin_recipients:
+            Notification.objects.create(
+                recipient=admin,
+                sender=user,
+                college=user.college,
+                category=NotificationCategory.REPORT,
+                notification_type='HOD_ADMIN_REPORT_SUBMISSION',
+                title=f"Department Report Submitted by HOD: {report.title}",
+                body=f"Department: {dept_name} ({dept_code}) | HOD: {user.get_full_name()} | Report: {report.title} | Status: SUBMITTED | Submitted: {now_iso}",
+                priority=NotificationPriority.HIGH,
+                action_url=f"/api/v1/reports/{report.id}/download/",
+                action_label="View / Download Report",
+                related_model='GeneratedReport',
+                related_id=report.id,
+                metadata={
+                    'report_id': str(report.id),
+                    'report_title': report.title,
+                    'hod_id': str(user.id),
+                    'hod_name': user.get_full_name(),
+                    'department_id': str(user.department_id),
+                    'department_name': dept_name,
+                    'department_code': dept_code,
+                    'submitted_at': now_iso,
+                    'report_status': 'SUBMITTED',
+                    'record_count': report.record_count,
+                    'download_url': f"/api/v1/reports/{report.id}/download/",
+                    'target_role': admin.role,
+                }
+            )
+
+        log_action(
+            actor=user,
+            action='REPORT_SUBMITTED_TO_ADMINS',
+            instance=report,
+            comment=f"HOD {user.get_full_name()} submitted report '{report.title}' to Management and IQAC ({len(admin_recipients)} recipients)"
+        )
+
+        return Response({
+            'status': 'success',
+            'message': f"Report '{report.title}' successfully submitted to Management (Admin2) and IQAC (Admin3).",
+            'report_id': str(report.id),
+            'submitted_at': now_iso,
+            'recipients_count': len(admin_recipients),
+        })

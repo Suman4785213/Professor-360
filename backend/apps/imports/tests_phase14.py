@@ -411,19 +411,19 @@ class Phase14DataImportTests(TestCase):
         # Test authenticated request with valid token
         client = APIClient()
         resp = client.get(
-            '/api/integrations/v1/faculty/',
+            '/api/imports/v1/faculty/',
             HTTP_X_IQAC_API_KEY=raw_token,
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(resp.data['count'], 1)
 
         # Test unauthorized request without token
-        resp_unauth = client.get('/api/integrations/v1/faculty/')
+        resp_unauth = client.get('/api/imports/v1/faculty/')
         self.assertEqual(resp_unauth.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # Test forbidden scope request (key has faculty:read and activities:read, but NOT evidence:read)
         resp_forbidden = client.get(
-            '/api/integrations/v1/evidence/',
+            '/api/imports/v1/evidence/',
             HTTP_X_IQAC_API_KEY=raw_token,
         )
         self.assertEqual(resp_forbidden.status_code, status.HTTP_403_FORBIDDEN)

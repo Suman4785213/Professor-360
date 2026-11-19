@@ -77,9 +77,9 @@ class BillingSubscriptionView(APIView):
 class BillingPlanListView(APIView):
     """
     Lists available SaaS plans with actual configured limits, pricing, and feature allocations.
-    Accessible to all authenticated users for plan comparison.
+    Accessible publicly so prospective colleges on the registration page can inspect plans.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @extend_schema(summary="List SaaS Plans & Comparison Matrix")
     def get(self, request):
@@ -87,9 +87,11 @@ class BillingPlanListView(APIView):
         serializer = PlanSerializer(plans, many=True)
 
         current_plan_code = None
-        college = getattr(request.user, 'college', None)
-        if college and college.active_subscription:
-            current_plan_code = college.active_subscription.plan.code
+        user = getattr(request, 'user', None)
+        if user and user.is_authenticated:
+            college = getattr(user, 'college', None)
+            if college and college.active_subscription:
+                current_plan_code = college.active_subscription.plan.code
 
         return Response({
             'current_plan_code': current_plan_code,

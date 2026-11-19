@@ -215,6 +215,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onOpen
           </Button>
 
           <Button
+            id="provision-college-btn"
             onClick={onOpenCreateCollege}
             variant="primary"
             size="md"

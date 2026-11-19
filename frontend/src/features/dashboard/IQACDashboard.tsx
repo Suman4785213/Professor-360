@@ -1,3 +1,4 @@
+import { SecureLink, SecureImage } from '../../api/privateMedia';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
@@ -28,7 +29,9 @@ import {
   Clock,
   Printer,
   FileSpreadsheet,
+  UserPlus,
 } from 'lucide-react';
+import { FacultyRegistrationModal } from '../faculty/FacultyRegistrationModal';
 import {
   BarChart,
   Bar,
@@ -87,6 +90,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
   const [facultySearch, setFacultySearch] = useState<string>('');
   const [showPersonalDetails, setShowPersonalDetails] = useState<boolean>(false);
   const [activeFacultyCategory, setActiveFacultyCategory] = useState<string>('fdps');
+  const [isFacultyRegOpen, setIsFacultyRegOpen] = useState<boolean>(false);
 
   // Load departments on mount
   useEffect(() => {
@@ -588,7 +592,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
           <div className="flex items-center gap-5">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-teal-600 to-cyan-700 text-white font-black text-2xl flex items-center justify-center shadow-lg shadow-teal-500/20 shrink-0 overflow-hidden">
               {fHeader.photo_url ? (
-                <img src={fHeader.photo_url} alt={fHeader.faculty_name} className="w-full h-full object-cover" />
+                <SecureImage src={fHeader.photo_url} alt={fHeader.faculty_name} className="w-full h-full object-cover" />
               ) : (
                 <span>{(fHeader.faculty_name || 'F').charAt(0)}</span>
               )}
@@ -846,7 +850,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                             <td className="py-3 px-3 text-slate-600">{a.role}</td>
                             <td className="py-3 px-3 text-right">
                               {a.certificate_proof ? (
-                                <a
+                                <SecureLink
                                   href={a.certificate_proof}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -854,7 +858,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                                 >
                                   <span>View Proof</span>
                                   <ExternalLink className="w-3 h-3" />
-                                </a>
+                                </SecureLink>
                               ) : (
                                 <span className="text-slate-400 text-[11px] italic">Verified in Dossier</span>
                               )}
@@ -913,7 +917,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                             <td className="py-3 px-3 text-slate-600">{a.role}</td>
                             <td className="py-3 px-3 text-right">
                               {a.proof_url ? (
-                                <a
+                                <SecureLink
                                   href={a.proof_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -921,7 +925,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                                 >
                                   <span>Proof</span>
                                   <ExternalLink className="w-3 h-3" />
-                                </a>
+                                </SecureLink>
                               ) : (
                                 <span className="text-slate-400 text-[11px] italic">Verified</span>
                               )}
@@ -957,7 +961,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                             {a.category}
                           </span>
                           {a.proof_url && (
-                            <a
+                            <SecureLink
                               href={a.proof_url}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -965,7 +969,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                             >
                               <span>Proof</span>
                               <ExternalLink className="w-3 h-3" />
-                            </a>
+                            </SecureLink>
                           )}
                         </div>
                         <h5 className="text-xs font-bold text-slate-900 mt-2">{a.title}</h5>
@@ -1018,7 +1022,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                             <td className="py-3 px-3 text-slate-600">{a.role}</td>
                             <td className="py-3 px-3 text-right text-teal-600 font-bold">
                               {a.proof_url ? (
-                                <a href={a.proof_url} target="_blank" rel="noopener noreferrer">View Proof</a>
+                                <SecureLink href={a.proof_url} target="_blank" rel="noopener noreferrer">View Proof</SecureLink>
                               ) : (
                                 'Verified'
                               )}
@@ -1562,16 +1566,27 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
             <span>Back to Department Overview ({selectedDept.code})</span>
           </button>
 
-          {/* Search Box */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search faculty name or designation..."
-              value={facultySearch}
-              onChange={(e) => setFacultySearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-text"
-            />
+          {/* Register Faculty & Search Box */}
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button
+              type="button"
+              id="iqac-dept-register-faculty-btn"
+              onClick={() => setIsFacultyRegOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shrink-0 shadow-xs"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>+ Register Faculty</span>
+            </button>
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search faculty name or designation..."
+                value={facultySearch}
+                onChange={(e) => setFacultySearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-text"
+              />
+            </div>
           </div>
         </div>
 
@@ -1597,7 +1612,7 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
                     <div className="flex items-center gap-4">
                       <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-teal-600 to-cyan-700 text-white font-bold text-lg flex items-center justify-center shrink-0 shadow-md shadow-teal-500/20 overflow-hidden">
                         {faculty.photo_url ? (
-                          <img
+                          <SecureImage
                             src={faculty.photo_url}
                             alt={faculty.full_name}
                             className="w-full h-full object-cover"
@@ -1837,9 +1852,21 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
           </p>
         </div>
 
-        <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/10 text-right">
-          <p className="text-[10px] text-teal-200 font-bold uppercase">Accredited Academic Year</p>
-          <p className="text-sm font-black text-white">2024–25 (Active)</p>
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            id="iqac-register-faculty-btn"
+            onClick={() => setIsFacultyRegOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white rounded-xl shadow-md text-xs font-bold transition cursor-pointer shrink-0"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>New Faculty Registration</span>
+          </button>
+
+          <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/10 text-right">
+            <p className="text-[10px] text-teal-200 font-bold uppercase">Accredited Academic Year</p>
+            <p className="text-sm font-black text-white">2024–25 (Active)</p>
+          </div>
         </div>
       </div>
 
@@ -1900,6 +1927,16 @@ export const IQACDashboard: React.FC<IQACDashboardProps> = () => {
           </div>
         )}
       </div>
+
+      <FacultyRegistrationModal
+        isOpen={isFacultyRegOpen}
+        onClose={() => setIsFacultyRegOpen(false)}
+        defaultDepartmentId={selectedDept?.id}
+        onSuccess={() => {
+          fetchDepartments();
+          if (selectedDept) handleSelectDepartment(selectedDept);
+        }}
+      />
     </div>
   );
 };

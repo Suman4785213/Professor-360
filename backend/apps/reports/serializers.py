@@ -1,3 +1,4 @@
+from core.serializers import TenantRelationsMixin
 """
 Serializers for Reports app — Phase 6: Automated Report Generation Engine
 """
@@ -5,7 +6,7 @@ from rest_framework import serializers
 from .models import ReportType, ReportTemplate, ReportTemplateVersion, GeneratedReport, ReportFormat
 
 
-class ReportTypeSerializer(serializers.ModelSerializer):
+class ReportTypeSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     class Meta:
         model = ReportType
         fields = [
@@ -22,7 +23,7 @@ class ReportTypeSerializer(serializers.ModelSerializer):
         ]
 
 
-class ReportTemplateVersionSerializer(serializers.ModelSerializer):
+class ReportTemplateVersionSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
 
     class Meta:
@@ -37,7 +38,7 @@ class ReportTemplateVersionSerializer(serializers.ModelSerializer):
         ]
 
 
-class ReportTemplateSerializer(serializers.ModelSerializer):
+class ReportTemplateSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     report_type_name = serializers.CharField(source='report_type.name', read_only=True)
     report_type_code = serializers.CharField(source='report_type.code', read_only=True)
     versions = ReportTemplateVersionSerializer(many=True, read_only=True)
@@ -66,7 +67,7 @@ class ReportTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ['college', 'version', 'created_by', 'created_at', 'updated_at']
 
 
-class GeneratedReportListSerializer(serializers.ModelSerializer):
+class GeneratedReportListSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     report_type_name = serializers.CharField(source='report_type.name', read_only=True)
     report_type_code = serializers.CharField(source='report_type.code', read_only=True)
     template_name = serializers.CharField(source='template.name', read_only=True, default='')

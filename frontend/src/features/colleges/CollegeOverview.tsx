@@ -67,19 +67,19 @@ export const CollegeOverview: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100 text-xs">
               <div className="flex items-center gap-2 text-slate-600">
                 <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{college?.contact_email || 'info@demo.edu'}</span>
+                <span>{college?.contact_email || 'Not configured'}</span>
               </div>
               <div className="flex items-center gap-2 text-slate-600">
                 <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{college?.contact_phone || '+91 98765 43210'}</span>
+                <span>{college?.contact_phone || 'Not configured'}</span>
               </div>
               <div className="flex items-center gap-2 text-slate-600">
                 <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{college?.city || 'Bangalore'}, {college?.state || 'Karnataka'}</span>
+                <span>{college?.city ? `${college.city}${college?.state ? `, ${college.state}` : ''}` : 'Location not configured'}</span>
               </div>
               <div className="flex items-center gap-2 text-slate-600">
                 <Globe className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{college?.website || 'https://www.demo.edu'}</span>
+                <span>{college?.website || 'Not configured'}</span>
               </div>
             </div>
           </div>

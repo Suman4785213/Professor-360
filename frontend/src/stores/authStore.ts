@@ -7,11 +7,10 @@ interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, collegeId?: string, isSuperAdmin?: boolean) => Promise<void>;
   registerFaculty: (payload: FacultyRegisterPayload) => Promise<void>;
   logout: () => void;
   loadUser: () => Promise<void>;
-  switchDemoRole: (email: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -20,13 +19,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: !!localStorage.getItem('access_token'),
   isLoading: true,
 
-  login: async (email, password) => {
+  login: async (email, password, collegeId, isSuperAdmin) => {
     set({ isLoading: true });
     try {
-      const res = await apiClient.post('/auth/login/', { email, password });
+      const payload: Record<string, any> = { email, password };
+      if (collegeId) payload.college_id = collegeId;
+      if (isSuperAdmin) payload.is_super_admin = true;
+
+      const res = await apiClient.post('/auth/login/', payload);
       const { access, refresh, user } = res.data;
       localStorage.setItem('access_token', access);
       localStorage.setItem('refresh_token', refresh);
+      if (collegeId) {
+        localStorage.setItem('p360_active_college_id', collegeId);
+      } else {
+        localStorage.removeItem('p360_active_college_id');
+      }
       set({ user, token: access, isAuthenticated: true, isLoading: false });
     } catch (err: any) {
       set({ isLoading: false });
@@ -78,11 +86,5 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.removeItem('refresh_token');
       set({ user: null, isAuthenticated: false, isLoading: false });
     }
-  },
-
-  switchDemoRole: async (email: string) => {
-    // Quick role switch for live testing all 6 user roles
-    const password = email === 'admin@iqac.local' ? 'admin123' : 'demo123';
-    await get().login(email, password);
   },
 }));

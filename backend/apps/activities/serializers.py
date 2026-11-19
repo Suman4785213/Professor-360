@@ -1,23 +1,24 @@
+from core.serializers import TenantRelationsMixin
 import hashlib
 from rest_framework import serializers
 from .models import Activity, ActivityCategory, Document, DocumentCategory
 
 
-class ActivityCategorySerializer(serializers.ModelSerializer):
+class ActivityCategorySerializer(TenantRelationsMixin, serializers.ModelSerializer):
     class Meta:
         model = ActivityCategory
         fields = ['id', 'college', 'name', 'code', 'description', 'is_active', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
-class DocumentCategorySerializer(serializers.ModelSerializer):
+class DocumentCategorySerializer(TenantRelationsMixin, serializers.ModelSerializer):
     class Meta:
         model = DocumentCategory
         fields = ['id', 'college', 'name', 'code', 'description', 'is_active', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
-class DocumentSerializer(serializers.ModelSerializer):
+class DocumentSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     uploaded_by_name = serializers.CharField(source='uploaded_by.get_full_name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     category_code = serializers.CharField(source='category.code', read_only=True)
@@ -35,6 +36,20 @@ class DocumentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'college', 'department', 'uploaded_by', 'file_hash', 'file_size', 'mime_type', 'uploaded_at', 'created_at', 'updated_at']
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        user = self.context['request'].user
+        activity = attrs.get('activity', self.instance.activity if self.instance else None)
+        if self.instance and activity != self.instance.activity:
+            raise serializers.ValidationError({'activity': 'Documents cannot be reassigned.'})
+        if activity and user.role != 'SUPER_ADMIN':
+            if user.role != 'FACULTY' or activity.faculty_id != user.id or not activity.is_editable:
+                raise serializers.ValidationError({'activity': 'Only the author may edit documents on an editable activity.'})
+        replacement = attrs.get('replaced_by')
+        if replacement and replacement.activity_id != activity.id:
+            raise serializers.ValidationError({'replaced_by': 'Replacement must belong to the same activity.'})
+        return attrs
+
     def get_preview_url(self, obj):
         return f"/api/documents/{obj.id}/preview/"
 
@@ -42,6 +57,8 @@ class DocumentSerializer(serializers.ModelSerializer):
         return f"/api/documents/{obj.id}/download/"
 
     def validate_file(self, value):
+        from core.validators import validate_file_security
+        validate_file_security(value)
         # 10MB maximum size limit
         max_size = 10 * 1024 * 1024
         if value.size > max_size:
@@ -55,7 +72,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         return value
 
 
-class ActivitySerializer(serializers.ModelSerializer):
+class ActivitySerializer(TenantRelationsMixin, serializers.ModelSerializer):
     documents = DocumentSerializer(many=True, read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     category_code = serializers.CharField(source='category.code', read_only=True)

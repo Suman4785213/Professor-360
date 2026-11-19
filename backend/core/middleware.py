@@ -57,6 +57,11 @@ class SecurityHeadersMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
 
+        # Authorized files and reset responses must never enter shared/browser caches.
+        if request.path.startswith('/media/') or request.path.startswith(('/api/documents/', '/api/v1/documents/', '/api/reports/', '/api/v1/reports/')) or request.path.endswith(('/forgot-password/', '/reset-password/')):
+            response['Cache-Control'] = 'private, no-store'
+            response['Referrer-Policy'] = 'no-referrer'
+
         # Standard OWASP recommended security headers
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')

@@ -1,708 +1,696 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../api/client';
-import { PublicCollegeOption, FacultyRegisterPayload } from '../../types';
+import { PublicCollegeOption } from '../../types';
+import { Professor360Logo } from '../../components/common/Professor360Logo';
 import {
-  GraduationCap,
   ShieldCheck,
   CheckCircle2,
-  ArrowRight,
   Lock,
   Mail,
   Building2,
-  BookOpen,
-  User,
-  Briefcase,
-  BadgeCheck,
-  UserPlus,
-  LogIn,
   AlertCircle,
+  Search,
   Sparkles,
+  ArrowLeft,
+  ChevronRight,
+  X,
 } from 'lucide-react';
 
-export const LoginView: React.FC = () => {
-  const { login, registerFaculty, switchDemoRole, isLoading } = useAuthStore();
-  const [authMode, setAuthMode] = useState<'signin' | 'register'>('signin');
+type InstitutionalRoleKey = 'IQAC' | 'HOD' | 'DEPARTMENT_INCHARGE' | 'FACULTY' | 'COLLEGE_MANAGEMENT';
+type ViewMode = 'INSTITUTION_SELECTION' | 'SUPER_ADMIN_LOGIN' | 'COLLEGE_LOGIN';
 
-  // Sign In state - starts empty per requirement
+export const LoginView: React.FC = () => {
+  const { login, isLoading } = useAuthStore();
+
+  // Navigation / View state (Initial view is strictly INSTITUTION_SELECTION)
+  const [viewMode, setViewMode] = useState<ViewMode>('INSTITUTION_SELECTION');
+  const [selectedCollege, setSelectedCollege] = useState<PublicCollegeOption | null>(() => {
+    try {
+      const saved = localStorage.getItem('p360_selected_institution');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Selected institutional role within college login
+  const [selectedRole, setSelectedRole] = useState<InstitutionalRoleKey>('IQAC');
+
+  // Sign-In credentials state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Faculty Self-Registration state
-  const [colleges, setColleges] = useState<PublicCollegeOption[]>([]);
-  const [isCollegesLoading, setIsCollegesLoading] = useState(false);
-  const [registerForm, setRegisterForm] = useState<FacultyRegisterPayload>({
-    college: '',
-    department: '',
-    first_name: '',
-    last_name: '',
-    email: '',
-    employee_id: '',
-    designation: 'Assistant Professor',
-    password: '',
-    confirm_password: '',
-  });
+  // Institution Search State (Landing Page)
+  const [institutionSearchQuery, setInstitutionSearchQuery] = useState('');
+  const [institutionSuggestions, setInstitutionSuggestions] = useState<PublicCollegeOption[]>([]);
+  const [isSearchingInstitutions, setIsSearchingInstitutions] = useState(false);
+  const [hasSearchedInstitutions, setHasSearchedInstitutions] = useState(false);
+  const searchDebounceRef = useRef<any>(null);
 
-  // Fetch public colleges list for faculty registration
+  // Role metadata for Institutional roles (excludes Super Admin)
+  const institutionalRoleConfig: Record<
+    InstitutionalRoleKey,
+    { label: string; shortLabel: string; badge: string; desc: string; demoEmail: string }
+  > = {
+    IQAC: {
+      label: 'IQAC Coordinator',
+      shortLabel: 'IQAC Coord.',
+      badge: 'bg-teal-50 text-teal-700 border-teal-200',
+      desc: 'Quality assurance, criteria & compliance records',
+      demoEmail: 'iqac@demo.edu',
+    },
+    HOD: {
+      label: 'Head of Department (HOD)',
+      shortLabel: 'HOD',
+      badge: 'bg-purple-50 text-purple-700 border-purple-200',
+      desc: 'Department-level approvals & oversight',
+      demoEmail: 'hod.cse@demo.edu',
+    },
+    DEPARTMENT_INCHARGE: {
+      label: 'Department In-charge',
+      shortLabel: 'Dept. Incharge',
+      badge: 'bg-blue-50 text-blue-700 border-blue-200',
+      desc: '1st level certificate & data verification',
+      demoEmail: 'incharge.cse@demo.edu',
+    },
+    FACULTY: {
+      label: 'Faculty Member',
+      shortLabel: 'Faculty',
+      badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      desc: 'Academic profile, certifications & workload records',
+      demoEmail: 'faculty.doe@demo.edu',
+    },
+    COLLEGE_MANAGEMENT: {
+      label: 'College Management',
+      shortLabel: 'Management',
+      badge: 'bg-amber-50 text-amber-700 border-amber-200',
+      desc: 'Institutional analytics & tenant management',
+      demoEmail: 'management@demo.edu',
+    },
+  };
+
+  // Switch institutional role
+  const handleRoleChange = (role: InstitutionalRoleKey) => {
+    setSelectedRole(role);
+    setError(null);
+    setSuccessMessage(null);
+    setEmail('');
+    setPassword('');
+  };
+
+  // Search institutions dynamically from backend database
   useEffect(() => {
-    let isMounted = true;
-    const fetchColleges = async () => {
-      setIsCollegesLoading(true);
+    const query = institutionSearchQuery.trim();
+
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    if (!query) {
+      setInstitutionSuggestions([]);
+      setIsSearchingInstitutions(false);
+      setHasSearchedInstitutions(false);
+      return;
+    }
+
+    setIsSearchingInstitutions(true);
+    searchDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await apiClient.get('/colleges/public/');
-        const list = Array.isArray(res.data) ? res.data : (res.data?.results || []);
-        if (isMounted) {
-          setColleges(list);
-          if (list.length > 0 && !registerForm.college) {
-            const first = list[0];
-            setRegisterForm((prev) => ({
-              ...prev,
-              college: first.id,
-              department: first.departments?.length > 0 ? first.departments[0].id : '',
-            }));
-          }
-        }
+        const res = await apiClient.get('/colleges/public/', {
+          params: { q: query },
+        });
+        const results = res.data?.results || [];
+        setInstitutionSuggestions(results);
+        setHasSearchedInstitutions(true);
       } catch (err) {
-        console.error('Failed to load public colleges directory:', err);
+        console.error('Failed to search institutions:', err);
+        setInstitutionSuggestions([]);
       } finally {
-        if (isMounted) setIsCollegesLoading(false);
+        setIsSearchingInstitutions(false);
+      }
+    }, 200);
+
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
       }
     };
+  }, [institutionSearchQuery]);
 
-    fetchColleges();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const selectedCollege = colleges.find((c) => c.id === registerForm.college);
-  const availableDepartments = selectedCollege?.departments || [];
-
-  const handleCollegeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newCollegeId = e.target.value;
-    const col = colleges.find((c) => c.id === newCollegeId);
-    const newDeptId = col?.departments && col.departments.length > 0 ? col.departments[0].id : '';
-    setRegisterForm((prev) => ({
-      ...prev,
-      college: newCollegeId,
-      department: newDeptId,
-    }));
-  };
-
-  const handleRegisterChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    setRegisterForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const demoRoles = [
-    {
-      title: 'Super Admin',
-      desc: 'Multi-college & platform management',
-      email: 'admin@iqac.local',
-      role: 'SUPER_ADMIN',
-      badge: 'bg-slate-800 text-white',
-    },
-    {
-      title: 'College Management',
-      desc: 'Institutional analytics & monitoring',
-      email: 'management@demo.edu',
-      role: 'COLLEGE_MANAGEMENT',
-      badge: 'bg-amber-100 text-amber-900',
-    },
-    {
-      title: 'IQAC Coordinator',
-      desc: 'Final verification, criteria & quality records',
-      email: 'iqac@demo.edu',
-      role: 'IQAC',
-      badge: 'bg-brand-100 text-brand-900',
-    },
-    {
-      title: 'HOD (CSE)',
-      desc: 'Department-level approvals & oversight',
-      email: 'hod.cse@demo.edu',
-      role: 'HOD',
-      badge: 'bg-purple-100 text-purple-900',
-    },
-    {
-      title: 'Dept In-charge (CSE)',
-      desc: '1st level certificate & data verification',
-      email: 'incharge.cse@demo.edu',
-      role: 'DEPARTMENT_INCHARGE',
-      badge: 'bg-blue-100 text-blue-900',
-    },
-    {
-      title: 'Faculty (Prof. Smith)',
-      desc: 'Data entry, profile & certificate upload',
-      email: 'faculty.smith@demo.edu',
-      role: 'FACULTY',
-      badge: 'bg-emerald-100 text-emerald-900',
-    },
-  ];
-
-  const handleSignInSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handle selecting an institution
+  const handleSelectInstitution = (college: PublicCollegeOption) => {
+    setSelectedCollege(college);
+    try {
+      localStorage.setItem('p360_selected_institution', JSON.stringify(college));
+    } catch (e) {
+      console.warn('Could not save selected institution to localStorage:', e);
+    }
     setError(null);
     setSuccessMessage(null);
-    try {
-      await login(email, password);
-    } catch (err: any) {
-      setError(err.message);
-    }
+    setEmail('');
+    setPassword('');
+    setViewMode('COLLEGE_LOGIN');
   };
 
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
+  // Handle changing institution (go back to search)
+  const handleChangeInstitution = () => {
+    setSelectedCollege(null);
+    try {
+      localStorage.removeItem('p360_selected_institution');
+    } catch (e) {
+      console.warn('Could not clear selected institution from localStorage:', e);
+    }
+    setError(null);
+    setSuccessMessage(null);
+    setEmail('');
+    setPassword('');
+    setInstitutionSearchQuery('');
+    setInstitutionSuggestions([]);
+    setHasSearchedInstitutions(false);
+    setViewMode('INSTITUTION_SELECTION');
+  };
+
+  // Handle College-Specific Login Submit
+  const handleCollegeSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMessage(null);
 
-    // Client validation
-    if (!registerForm.college) {
-      setError('Please select your college from the directory.');
-      return;
-    }
-    if (!registerForm.department) {
-      setError('Please select your department.');
-      return;
-    }
-    if (!registerForm.first_name.trim() || !registerForm.last_name.trim()) {
-      setError('First name and last name are required.');
-      return;
-    }
-    if (!registerForm.email.trim()) {
-      setError('Institutional email address is required.');
-      return;
-    }
-    if (registerForm.password.length < 8) {
-      setError('Password must be at least 8 characters long.');
-      return;
-    }
-    if (registerForm.password !== registerForm.confirm_password) {
-      setError('Passwords do not match. Please re-enter your password.');
+    if (!selectedCollege) {
+      setError('Please select an institution before signing in.');
+      setViewMode('INSTITUTION_SELECTION');
       return;
     }
 
     try {
-      setSuccessMessage('Creating your faculty account and logging in...');
-      await registerFaculty(registerForm);
+      // Pass selected college id for tenant validation in backend
+      await login(email, password, selectedCollege.id, false);
     } catch (err: any) {
-      setSuccessMessage(null);
-      setError(err.message);
+      setError(err.message || 'Authentication failed. Please verify your credentials and institution.');
     }
   };
 
-  const handleQuickLogin = async (demoEmail: string) => {
+  // Handle Super Admin Login Submit
+  const handleSuperAdminSignInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError(null);
     setSuccessMessage(null);
+
     try {
-      await switchDemoRole(demoEmail);
+      // Super admin signs in without collegeId and with isSuperAdmin=true
+      await login(email, password, undefined, true);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Super Admin authentication failed. Please verify your administrative credentials.');
     }
+  };
+
+  // Reusable Top Bar Component
+  const renderTopBar = (showSuperAdminBtn = true, backAction?: () => void, backLabel?: string) => {
+    return (
+      <header className="w-full flex items-center justify-between py-6 px-6 sm:px-12 max-w-7xl mx-auto">
+        <div>
+          {backAction && (
+            <button
+              type="button"
+              onClick={backAction}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 shadow-2xs transition cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+              <span>{backLabel || 'Back'}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Top-Right Area: Small Super Admin Button & Professor360 Logo */}
+        <div className="flex items-center gap-4">
+          {showSuperAdminBtn && (
+            <button
+              id="super-admin-btn"
+              type="button"
+              onClick={() => {
+                setError(null);
+                setSuccessMessage(null);
+                setEmail('');
+                setPassword('');
+                setViewMode('SUPER_ADMIN_LOGIN');
+              }}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 hover:text-indigo-600 border border-slate-300 rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+              title="Super Admin Portal Sign-In"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+              <span>Super Admin</span>
+            </button>
+          )}
+
+          {/* Official Professor360 Metallic Emblem Logo positioned at the top right corner */}
+          <Professor360Logo
+            size="md"
+            showText={true}
+            subtitle="Accreditation Suite"
+          />
+        </div>
+      </header>
+    );
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
-      {/* Background glow effects */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-brand-600/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans">
+      {/* ==================================================================== */}
+      {/* 1. INITIAL LANDING PAGE: INSTITUTION SELECTION SCREEN                */}
+      {/* ==================================================================== */}
+      {viewMode === 'INSTITUTION_SELECTION' && (
+        <div className="min-h-screen flex flex-col justify-between">
+          {renderTopBar(true)}
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center relative z-10">
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-brand-500/25 mb-4">
-          <GraduationCap className="w-8 h-8" />
+          {/* Centered Selection Panel */}
+          <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-8">
+            <div className="bg-white border border-slate-200/90 rounded-2xl shadow-sm p-8 sm:p-12 w-full max-w-xl mx-auto text-center">
+              {/* Heading */}
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-6">
+                Select Your Institution
+              </h1>
+
+              {/* Institution Search Box */}
+              <div className="relative text-left">
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Search className="w-5 h-5" />
+                  </div>
+                  <input
+                    id="institution-search-input"
+                    type="text"
+                    value={institutionSearchQuery}
+                    onChange={(e) => setInstitutionSearchQuery(e.target.value)}
+                    placeholder="Type your institution name"
+                    autoFocus
+                    className="w-full pl-11 pr-10 py-3.5 bg-white border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition"
+                  />
+                  {institutionSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setInstitutionSearchQuery('')}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Short instruction below search box */}
+                <p className="mt-3 text-xs sm:text-sm text-slate-500 text-center font-normal">
+                  Please type your institution name to search. You can type the first 3 letters of your institution to see the list.
+                </p>
+
+                {/* Searching Loader */}
+                {isSearchingInstitutions && (
+                  <div className="mt-4 p-4 text-center text-xs text-slate-500 flex items-center justify-center gap-2 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                    <span>Searching registered institutions...</span>
+                  </div>
+                )}
+
+                {/* Suggestions Dropdown / Results List */}
+                {!isSearchingInstitutions && institutionSuggestions.length > 0 && (
+                  <div className="mt-4 max-h-64 overflow-y-auto space-y-2 text-left border border-slate-200 rounded-xl p-2 bg-slate-50/50 shadow-xs">
+                    <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Matching Registered Colleges ({institutionSuggestions.length})
+                    </div>
+                    {institutionSuggestions.map((col) => (
+                      <div
+                        key={col.id}
+                        id={`institution-item-${col.code.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                        onClick={() => handleSelectInstitution(col)}
+                        className="p-3 bg-white hover:bg-indigo-50/70 border border-slate-200 hover:border-indigo-300 rounded-lg cursor-pointer transition flex items-center justify-between group shadow-2xs"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition">
+                            <Building2 className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-indigo-700 truncate transition">
+                              {col.name}
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              <span className="font-mono font-medium text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
+                                {col.code}
+                              </span>
+                              {col.city && (
+                                <span>
+                                  • {col.city}
+                                  {col.state ? `, ${col.state}` : ''}
+                                </span>
+                              )}
+                              {col.accreditation_type && (
+                                <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded text-[10px] font-medium border border-emerald-200">
+                                  {col.accreditation_type}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty State when typed query >= 3 and no match found */}
+                {!isSearchingInstitutions &&
+                  hasSearchedInstitutions &&
+                  institutionSearchQuery.trim().length >= 3 &&
+                  institutionSuggestions.length === 0 && (
+                    <div className="mt-4 p-5 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                      <p className="font-semibold text-slate-700">
+                        No active registered institution found matching "{institutionSearchQuery}".
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Please verify your spelling or contact your institutional coordinator.
+                      </p>
+                    </div>
+                  )}
+              </div>
+            </div>
+          </main>
+
+          {/* Footer */}
+          <footer className="py-4 text-center text-xs text-slate-400">
+            © 2026 Professor360 • Multi-Tenant Higher Education Accreditation Platform
+          </footer>
         </div>
-        <h2 className="text-3xl font-extrabold text-white tracking-tight">
-          IQAC Management System
-        </h2>
-        <p className="mt-2 text-sm text-slate-400 font-medium">
-          Enter Data Once <span className="text-brand-400 font-bold">→</span> Verify Once <span className="text-brand-400 font-bold">→</span> Reuse Everywhere
-        </p>
-      </div>
+      )}
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-5xl relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl">
-          
-          {/* Left: Sign In or Faculty Self-Registration Form */}
-          <div className="lg:col-span-7 flex flex-col justify-between">
-            <div>
-              {/* Mode Switcher Tabs */}
-              <div className="flex items-center p-1 bg-slate-900/90 border border-slate-700/70 rounded-2xl mb-6">
-                <button
-                  type="button"
-                  id="tab-signin-btn"
-                  onClick={() => {
-                    setAuthMode('signin');
-                    setError(null);
-                    setSuccessMessage(null);
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition ${
-                    authMode === 'signin'
-                      ? 'bg-brand-600 text-white shadow-md shadow-brand-600/30'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                  }`}
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  Sign In
-                </button>
-                <button
-                  type="button"
-                  id="tab-register-btn"
-                  onClick={() => {
-                    setAuthMode('register');
-                    setError(null);
-                    setSuccessMessage(null);
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition ${
-                    authMode === 'register'
-                      ? 'bg-brand-600 text-white shadow-md shadow-brand-600/30'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                  }`}
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  Faculty Self-Registration
-                </button>
+      {/* ==================================================================== */}
+      {/* 2. SUPER ADMIN LOGIN (PATH 1: SEPARATE FROM INSTITUTION AUTH)        */}
+      {/* ==================================================================== */}
+      {viewMode === 'SUPER_ADMIN_LOGIN' && (
+        <div className="min-h-screen flex flex-col justify-between">
+          {renderTopBar(false, () => setViewMode('INSTITUTION_SELECTION'), 'Back to Institution Selection')}
+
+          <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-8">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 w-full max-w-md mx-auto">
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 mx-auto rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-xs mb-3">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div className="inline-block px-2.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 text-[11px] font-semibold uppercase tracking-wider mb-2">
+                  Platform Administration Only
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Super Admin Login</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Platform administration, tenant provisioning & system governance
+                </p>
               </div>
 
-              {/* Status alerts */}
+              {/* Alert messages */}
               {error && (
-                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="mb-5 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <span>{error}</span>
                 </div>
               )}
 
               {successMessage && (
-                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="mb-5 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <span>{successMessage}</span>
                 </div>
               )}
 
-              {/* VIEW 1: Sign In Form */}
-              {authMode === 'signin' ? (
+              {/* Auto-fill demo credentials for Super Admin */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-5 flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-600 font-medium">Demo Administrator:</span>
+                <button
+                  id="autofill-demo-superadmin"
+                  type="button"
+                  onClick={() => {
+                    setEmail('admin@demo.edu');
+                    setPassword('demo123');
+                    setError(null);
+                    setSuccessMessage('Demo Super Admin credentials loaded.');
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer underline flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Auto-fill credentials</span>
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleSuperAdminSignInSubmit} className="space-y-4">
                 <div>
-                  <div className="mb-5">
-                    <h3 className="text-lg font-bold text-white mb-1">Sign In to Your Account</h3>
-                    <p className="text-xs text-slate-400">
-                      Access your role-specific dashboard and institutional workflows.
-                    </p>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Super Admin Email / ID
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="super-admin-email-input"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      placeholder="admin@demo.edu"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition"
+                    />
                   </div>
-
-                  <form onSubmit={handleSignInSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Institutional Email
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                          <Mail className="w-4 h-4" />
-                        </div>
-                        <input
-                          id="login-email-input"
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          required
-                          placeholder="name@college.edu"
-                          className="w-full pl-9 pr-3 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Password
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                          <Lock className="w-4 h-4" />
-                        </div>
-                        <input
-                          id="login-password-input"
-                          type="password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          required
-                          placeholder="••••••••"
-                          className="w-full pl-9 pr-3 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="pt-2">
-                      <Button
-                        id="login-submit-btn"
-                        type="submit"
-                        variant="primary"
-                        size="lg"
-                        isLoading={isLoading}
-                        className="w-full text-sm font-semibold shadow-lg shadow-brand-600/20"
-                      >
-                        Sign In to Portal
-                      </Button>
-                    </div>
-
-                    <div className="pt-3 text-center">
-                      <button
-                        type="button"
-                        id="switch-to-register-link"
-                        onClick={() => {
-                          setAuthMode('register');
-                          setError(null);
-                        }}
-                        className="text-xs text-brand-400 hover:text-brand-300 font-medium inline-flex items-center gap-1.5 transition group"
-                      >
-                        <span>New Faculty Member? Create your account by selecting your College</span>
-                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                      </button>
-                    </div>
-                  </form>
                 </div>
-              ) : (
-                /* VIEW 2: Faculty Self-Registration Form */
+
                 <div>
-                  <div className="mb-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-lg font-bold text-white">Faculty Self-Registration</h3>
-                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        Faculty Role
-                      </span>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="w-4 h-4" />
                     </div>
-                    <p className="text-xs text-slate-400">
-                      Select your college and department to automatically create your faculty workspace.
-                    </p>
+                    <input
+                      id="super-admin-password-input"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      placeholder="Enter password"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition"
+                    />
                   </div>
+                </div>
 
-                  <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-                    {/* College Selection */}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Select Your College <span className="text-rose-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                          <Building2 className="w-4 h-4 text-brand-400" />
-                        </div>
-                        <select
-                          id="faculty-register-college-select"
-                          name="college"
-                          value={registerForm.college}
-                          onChange={handleCollegeChange}
-                          required
-                          disabled={isCollegesLoading}
-                          className="w-full pl-9 pr-8 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition appearance-none cursor-pointer"
-                        >
-                          {isCollegesLoading && <option value="">Loading college directory...</option>}
-                          {!isCollegesLoading && colleges.length === 0 && (
-                            <option value="">No active colleges available</option>
-                          )}
-                          {colleges.map((c) => (
-                            <option key={c.id} value={c.id} className="bg-slate-900 text-white">
-                              {c.name} {c.city ? `(${c.city}${c.state ? `, ${c.state}` : ''})` : `[${c.code}]`}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
-                          ▼
-                        </div>
+                <div className="pt-2">
+                  <Button
+                    id="super-admin-submit-btn"
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    isLoading={isLoading}
+                    className="w-full text-sm font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-xs"
+                  >
+                    Sign In as Super Admin
+                  </Button>
+                </div>
+              <a href="/reset-password" className="block mt-3 text-center text-xs font-semibold text-indigo-600 hover:underline">Forgot password?</a>
+              </form>
+            </div>
+          </main>
+
+          <footer className="py-4 text-center text-xs text-slate-400">
+            © 2026 Professor360 • System Governance
+          </footer>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 3. COLLEGE-SPECIFIC LOGIN PAGE (PATH 2)                              */}
+      {/* ==================================================================== */}
+      {viewMode === 'COLLEGE_LOGIN' && (
+        <div className="min-h-screen flex flex-col justify-between">
+          {renderTopBar(false, handleChangeInstitution, 'Change Institution')}
+
+          <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-6">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 w-full max-w-2xl mx-auto">
+              {/* Selected College Header Banner */}
+              {selectedCollege && (
+                <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm sm:text-base font-bold text-slate-900 leading-tight truncate">
+                        {selectedCollege.name}
+                      </h2>
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
+                        <span className="font-mono font-semibold text-indigo-700 bg-indigo-100/70 px-1.5 py-0.2 rounded text-[10px]">
+                          {selectedCollege.code}
+                        </span>
+                        {selectedCollege.city && (
+                          <span>
+                            • {selectedCollege.city}
+                            {selectedCollege.state ? `, ${selectedCollege.state}` : ''}
+                          </span>
+                        )}
+                        {selectedCollege.accreditation_type && (
+                          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 rounded text-[10px] font-semibold">
+                            {selectedCollege.accreditation_type}
+                          </span>
+                        )}
                       </div>
                     </div>
-
-                    {/* Department Selection */}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Department <span className="text-rose-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                          <BookOpen className="w-4 h-4 text-brand-400" />
-                        </div>
-                        <select
-                          id="faculty-register-department-select"
-                          name="department"
-                          value={registerForm.department}
-                          onChange={handleRegisterChange}
-                          required
-                          disabled={availableDepartments.length === 0}
-                          className="w-full pl-9 pr-8 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition appearance-none cursor-pointer"
-                        >
-                          {availableDepartments.length === 0 && (
-                            <option value="">No departments available for this college</option>
-                          )}
-                          {availableDepartments.map((d) => (
-                            <option key={d.id} value={d.id} className="bg-slate-900 text-white">
-                              {d.name} ({d.code})
-                            </option>
-                          ))}
-                        </select>
-                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
-                          ▼
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* First Name & Last Name */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          First Name <span className="text-rose-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <User className="w-4 h-4" />
-                          </div>
-                          <input
-                            id="faculty-register-firstname-input"
-                            type="text"
-                            name="first_name"
-                            value={registerForm.first_name}
-                            onChange={handleRegisterChange}
-                            required
-                            placeholder="e.g. Priya"
-                            className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Last Name <span className="text-rose-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <User className="w-4 h-4" />
-                          </div>
-                          <input
-                            id="faculty-register-lastname-input"
-                            type="text"
-                            name="last_name"
-                            value={registerForm.last_name}
-                            onChange={handleRegisterChange}
-                            required
-                            placeholder="e.g. Sharma"
-                            className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Email & Designation */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Institutional Email <span className="text-rose-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <Mail className="w-4 h-4" />
-                          </div>
-                          <input
-                            id="faculty-register-email-input"
-                            type="email"
-                            name="email"
-                            value={registerForm.email}
-                            onChange={handleRegisterChange}
-                            required
-                            placeholder="priya.s@college.edu"
-                            className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Designation
-                        </label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <Briefcase className="w-4 h-4" />
-                          </div>
-                          <select
-                            id="faculty-register-designation-select"
-                            name="designation"
-                            value={registerForm.designation}
-                            onChange={handleRegisterChange}
-                            className="w-full pl-9 pr-8 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition appearance-none cursor-pointer"
-                          >
-                            <option value="Assistant Professor" className="bg-slate-900 text-white">Assistant Professor</option>
-                            <option value="Associate Professor" className="bg-slate-900 text-white">Associate Professor</option>
-                            <option value="Professor" className="bg-slate-900 text-white">Professor</option>
-                            <option value="Senior Lecturer" className="bg-slate-900 text-white">Senior Lecturer</option>
-                            <option value="Lecturer" className="bg-slate-900 text-white">Lecturer</option>
-                            <option value="Adjunct Faculty" className="bg-slate-900 text-white">Adjunct Faculty</option>
-                          </select>
-                          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
-                            ▼
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Employee ID (Optional) */}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Employee ID <span className="text-slate-500 font-normal">(Optional)</span>
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                          <BadgeCheck className="w-4 h-4" />
-                        </div>
-                        <input
-                          id="faculty-register-empid-input"
-                          type="text"
-                          name="employee_id"
-                          value={registerForm.employee_id}
-                          onChange={handleRegisterChange}
-                          placeholder="e.g. EMP-2026"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Password & Confirm Password */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Password <span className="text-rose-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <Lock className="w-4 h-4" />
-                          </div>
-                          <input
-                            id="faculty-register-password-input"
-                            type="password"
-                            name="password"
-                            value={registerForm.password}
-                            onChange={handleRegisterChange}
-                            required
-                            placeholder="Min 8 characters"
-                            className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Confirm Password <span className="text-rose-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <Lock className="w-4 h-4" />
-                          </div>
-                          <input
-                            id="faculty-register-confirmpass-input"
-                            type="password"
-                            name="confirm_password"
-                            value={registerForm.confirm_password}
-                            onChange={handleRegisterChange}
-                            required
-                            placeholder="Re-enter password"
-                            className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-2">
-                      <Button
-                        id="faculty-register-submit-btn"
-                        type="submit"
-                        variant="primary"
-                        size="lg"
-                        isLoading={isLoading}
-                        className="w-full text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 shadow-lg shadow-brand-600/20"
-                      >
-                        <Sparkles className="w-4 h-4 text-amber-300" />
-                        Create Faculty Account & Log In
-                      </Button>
-                    </div>
-
-                    <div className="pt-2 text-center">
-                      <button
-                        type="button"
-                        id="switch-to-signin-link"
-                        onClick={() => {
-                          setAuthMode('signin');
-                          setError(null);
-                        }}
-                        className="text-xs text-slate-400 hover:text-white font-medium inline-flex items-center gap-1.5 transition"
-                      >
-                        <span>Already registered? Sign In to Portal →</span>
-                      </button>
-                    </div>
-                  </form>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleChangeInstitution}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold underline shrink-0 cursor-pointer self-start sm:self-auto"
+                  >
+                    Change Institution
+                  </button>
                 </div>
               )}
-            </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-700/60 text-[11px] text-slate-400 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Multi-tenant encrypted database. Faculty accounts strictly isolate to selected college and department.</span>
-            </div>
-          </div>
+              {/* Alert messages */}
+              {error && (
+                <div className="mb-6 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
 
-          {/* Right: Instant 1-Click Role Switcher */}
-          <div className="lg:col-span-5 bg-slate-900/90 border border-slate-700/60 rounded-2xl p-5 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Instant Role Access (Testing)
-                </h4>
-                <span className="text-[10px] bg-brand-500/20 text-brand-300 font-semibold px-2 py-0.5 rounded-full border border-brand-500/30">
-                  6 Core Roles
-                </span>
+              {successMessage && (
+                <div className="mb-6 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+
+              {/* Institutional Role Selection Tabs (Strictly 5 roles, NO Super Admin) */}
+              <div className="mb-6">
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
+                  Select Role
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {(Object.keys(institutionalRoleConfig) as InstitutionalRoleKey[]).map((rKey) => {
+                    const isSelected = selectedRole === rKey;
+                    return (
+                      <button
+                        key={rKey}
+                        id={`role-btn-${rKey.toLowerCase()}`}
+                        type="button"
+                        onClick={() => handleRoleChange(rKey)}
+                        className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+                          isSelected
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs font-semibold'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                        }`}
+                      >
+                        <span className="text-xs leading-tight whitespace-nowrap">
+                          {institutionalRoleConfig[rKey].shortLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <p className="text-[11px] text-slate-400 mb-4">
-                Select any of the 6 institutional roles to immediately explore its dedicated dashboard and permissions:
-              </p>
 
-              <div className="space-y-2 overflow-y-auto max-h-[460px] pr-1">
-                {demoRoles.map((r) => (
-                  <button
-                    key={r.email}
-                    type="button"
-                    onClick={() => handleQuickLogin(r.email)}
-                    className="w-full text-left p-2.5 rounded-xl bg-slate-800/60 hover:bg-brand-600/15 border border-slate-700/50 hover:border-brand-500/40 transition group flex items-center justify-between"
+              {/* Active Role Indicator & Demo Credential Auto-Fill */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-500 font-medium">Selected Portal:</span>
+                  <span className="text-xs font-bold text-slate-900">
+                    {institutionalRoleConfig[selectedRole].label}
+                  </span>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${institutionalRoleConfig[selectedRole].badge}`}
                   >
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-brand-400 group-hover:scale-110 transition-transform" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-white group-hover:text-brand-300">
-                            {r.title}
-                          </span>
-                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${r.badge}`}>
-                            {r.role}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{r.desc}</p>
-                        <span className="text-[9px] text-slate-500 font-mono">{r.email}</span>
-                      </div>
-                    </div>
-                    <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-brand-400 group-hover:translate-x-1 transition-all shrink-0 ml-1" />
-                  </button>
-                ))}
+                    {selectedRole}
+                  </span>
+                </div>
+                <button
+                  id={`autofill-demo-${selectedRole.toLowerCase()}`}
+                  type="button"
+                  onClick={() => {
+                    setEmail(institutionalRoleConfig[selectedRole].demoEmail);
+                    setPassword('demo123');
+                    setError(null);
+                    setSuccessMessage(
+                      `Demo credentials loaded for ${institutionalRoleConfig[selectedRole].label}. Click "Sign In to Portal" below to enter.`
+                    );
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium self-start sm:self-auto cursor-pointer underline flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Auto-fill demo credentials</span>
+                </button>
               </div>
-            </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-800 text-[10px] text-slate-500 flex items-center justify-between">
-              <span>IQAC Multi-Tenant Platform</span>
-              <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                Live Cloud Mode
-              </span>
-            </div>
-          </div>
+              {/* Role Login Form */}
+              <form onSubmit={handleCollegeSignInSubmit} className="space-y-4 max-w-lg mx-auto">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Login ID / Email
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="login-email-input"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      placeholder="Enter your registered institutional email"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition"
+                    />
+                  </div>
+                </div>
 
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="login-password-input"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      placeholder="Enter password"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    id="login-submit-btn"
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    isLoading={isLoading}
+                    className="w-full text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs"
+                  >
+                    Sign In to Portal
+                  </Button>
+                </div>
+              <a href="/reset-password" className="block mt-3 text-center text-xs font-semibold text-indigo-600 hover:underline">Forgot password?</a>
+              </form>
+            </div>
+          </main>
+
+          <footer className="py-4 text-center text-xs text-slate-400">
+            © 2026 Professor360 • Institutional Authentication Portal
+          </footer>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -1,3 +1,4 @@
+from core.serializers import TenantRelationsMixin
 """
 Criteria app serializers — Phase 5: IQAC Criteria, Metrics & Evidence Mapping
 """
@@ -6,7 +7,7 @@ from apps.evidence.serializers import EvidenceListSerializer
 from .models import Framework, Criterion, Metric, EvidenceRequirement, EvidenceMapping
 
 
-class FrameworkSerializer(serializers.ModelSerializer):
+class FrameworkSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     criteria_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -22,7 +23,7 @@ class FrameworkSerializer(serializers.ModelSerializer):
         return obj.criteria.filter(is_active=True).count()
 
 
-class EvidenceRequirementSerializer(serializers.ModelSerializer):
+class EvidenceRequirementSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     document_category_name = serializers.CharField(source='document_category.name', read_only=True)
     document_category_code = serializers.CharField(source='document_category.code', read_only=True)
 
@@ -37,7 +38,7 @@ class EvidenceRequirementSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class MetricListSerializer(serializers.ModelSerializer):
+class MetricListSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     evidence_count = serializers.SerializerMethodField()
     criterion_number = serializers.CharField(source='criterion.number', read_only=True)
 
@@ -55,7 +56,7 @@ class MetricListSerializer(serializers.ModelSerializer):
         return obj.evidence_mappings.filter(status='ACTIVE').count()
 
 
-class MetricDetailSerializer(serializers.ModelSerializer):
+class MetricDetailSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     requirements = EvidenceRequirementSerializer(many=True, read_only=True)
     evidence_count = serializers.SerializerMethodField()
     criterion_number = serializers.CharField(source='criterion.number', read_only=True)
@@ -76,7 +77,7 @@ class MetricDetailSerializer(serializers.ModelSerializer):
         return obj.evidence_mappings.filter(status='ACTIVE').count()
 
 
-class CriterionListSerializer(serializers.ModelSerializer):
+class CriterionListSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     metrics_count = serializers.SerializerMethodField()
     evidence_count = serializers.SerializerMethodField()
     framework_name = serializers.CharField(source='framework_ref.name', read_only=True)
@@ -98,7 +99,7 @@ class CriterionListSerializer(serializers.ModelSerializer):
         return EvidenceMapping.objects.filter(criterion=obj, status='ACTIVE').count()
 
 
-class CriterionDetailSerializer(serializers.ModelSerializer):
+class CriterionDetailSerializer(TenantRelationsMixin, serializers.ModelSerializer):
     metrics = MetricListSerializer(many=True, read_only=True)
     framework_name = serializers.CharField(source='framework_ref.name', read_only=True)
 
@@ -113,7 +114,15 @@ class CriterionDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class EvidenceMappingListSerializer(serializers.ModelSerializer):
+class EvidenceMappingListSerializer(TenantRelationsMixin, serializers.ModelSerializer):
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if self.instance:
+            for field in ('college', 'criterion', 'metric', 'evidence', 'academic_year', 'mapped_by'):
+                if field in attrs and attrs[field] != getattr(self.instance, field):
+                    raise serializers.ValidationError({field: 'Mapping relationships cannot be reassigned.'})
+        return attrs
+
     metric_number = serializers.CharField(source='metric.number', read_only=True)
     metric_title = serializers.CharField(source='metric.title', read_only=True)
     criterion_number = serializers.CharField(source='criterion.number', read_only=True)

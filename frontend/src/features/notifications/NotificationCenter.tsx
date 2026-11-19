@@ -1,3 +1,4 @@
+import { openPrivateFile } from '../../api/privateMedia';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { NotificationItem, NotificationPriority } from '../../types';
@@ -22,7 +23,9 @@ import {
   FileQuestion,
   Sparkles,
   Inbox,
-  ArrowRight
+  ArrowRight,
+  Download,
+  FileCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
@@ -421,6 +424,43 @@ export const NotificationCenter: React.FC = () => {
                             </span>
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* HOD Merged Report Submission from In-charge with direct Download button */}
+                    {(n.notification_type === 'HOD_REPORT_SUBMISSION' || ((n.metadata as any)?.report_id && user?.role === 'HOD')) && (
+                      <div className="mt-3 p-3.5 rounded-xl bg-purple-50/80 border border-purple-200">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold text-purple-900 flex items-center gap-1.5">
+                              <FileCheck className="w-3.5 h-3.5 text-purple-700" />
+                              Report Submitted by Department In-charge
+                            </p>
+                            <p className="text-[11px] text-purple-700 mt-0.5">
+                              Consolidated department report file available for HOD review and download.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const reportId = n.related_id || (n.metadata as any)?.report_id;
+                              if (reportId) {
+                                try {
+                                  await apiClient.post(`/reports/${reportId}/hod-download/`);
+                                } catch (e) {}
+                                void openPrivateFile(`/api/v1/reports/${reportId}/download/`);
+                                handleMarkRead(n.id);
+                                if (user?.role === 'HOD') {
+                                  navigate('/hod/downloads');
+                                }
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition cursor-pointer shrink-0"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download Report</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

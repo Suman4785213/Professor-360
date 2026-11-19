@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Professor360",
+    "slug": "professor360",
+    "version": "1.0.0",
+    "scheme": "professor360",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./src/assets/professor360_logo.png",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./src/assets/professor360_logo.png",
+          "imageWidth": 180,
+          "backgroundColor": "#f8fafc"
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "microphonePermission": false,
+          "cameraPermission": false,
+          "photosPermission": "Choose evidence images for academic activities."
+        }
+      ]
+    ],
+    "android": {
+      "package": "com.professor360.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.professor360.mobile"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

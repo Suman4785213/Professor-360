@@ -1,3 +1,4 @@
+import { SecureImage } from '../../api/privateMedia';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
@@ -33,7 +34,9 @@ import {
   ArrowUpRight,
   Check,
   X,
+  UserPlus,
 } from 'lucide-react';
+import { FacultyRegistrationModal } from '../faculty/FacultyRegistrationModal';
 import {
   ResponsiveContainer,
   BarChart,
@@ -130,6 +133,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   // Faculty search filter
   const [facultySearch, setFacultySearch] = useState<string>('');
+  const [isFacultyRegOpen, setIsFacultyRegOpen] = useState<boolean>(false);
 
   // Purchasing Details State
   const [billingInfo, setBillingInfo] = useState<TenantBillingInfo | null>(null);
@@ -596,7 +600,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           >
                             <div className="flex items-start gap-3.5">
                               {f.photo_url ? (
-                                <img
+                                <SecureImage
                                   src={f.photo_url}
                                   alt={f.full_name}
                                   className="w-13 h-13 rounded-2xl object-cover border border-slate-200 shadow-xs shrink-0"
@@ -854,39 +858,51 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       </div>
 
       {/* Primary Section Switcher: Departments (11) vs Purchasing Details */}
-      <div className="flex items-center gap-2 border-b border-slate-200/80 pb-px">
-        <button
-          type="button"
-          id="main-tab-departments"
-          onClick={() => {
-            setMainView('DEPARTMENTS');
-            navigate('/management/dashboard');
-          }}
-          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl font-bold text-sm transition-all border-b-2 cursor-pointer ${
-            mainView === 'DEPARTMENTS'
-              ? 'border-brand-600 text-brand-700 bg-white shadow-xs'
-              : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-white/40'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>Academic Departments ({departments.length})</span>
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-px">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            id="main-tab-departments"
+            onClick={() => {
+              setMainView('DEPARTMENTS');
+              navigate('/management/dashboard');
+            }}
+            className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl font-bold text-sm transition-all border-b-2 cursor-pointer ${
+              mainView === 'DEPARTMENTS'
+                ? 'border-brand-600 text-brand-700 bg-white shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-white/40'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            <span>Academic Departments ({departments.length})</span>
+          </button>
+
+          <button
+            type="button"
+            id="main-tab-purchasing"
+            onClick={() => {
+              setMainView('PURCHASING');
+              navigate('/management/purchasing');
+            }}
+            className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl font-bold text-sm transition-all border-b-2 cursor-pointer ${
+              mainView === 'PURCHASING'
+                ? 'border-brand-600 text-brand-700 bg-white shadow-xs'
+                : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-white/40'
+            }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>Purchasing Details</span>
+          </button>
+        </div>
 
         <button
           type="button"
-          id="main-tab-purchasing"
-          onClick={() => {
-            setMainView('PURCHASING');
-            navigate('/management/purchasing');
-          }}
-          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl font-bold text-sm transition-all border-b-2 cursor-pointer ${
-            mainView === 'PURCHASING'
-              ? 'border-brand-600 text-brand-700 bg-white shadow-xs'
-              : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-white/40'
-          }`}
+          id="mgmt-register-faculty-btn"
+          onClick={() => setIsFacultyRegOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-xl shadow-xs text-xs font-bold transition cursor-pointer self-start sm:self-auto mb-2"
         >
-          <CreditCard className="w-4 h-4" />
-          <span>Purchasing Details</span>
+          <UserPlus className="w-4 h-4" />
+          <span>New Faculty Registration</span>
         </button>
       </div>
 
@@ -1589,6 +1605,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         </div>
       )}
+
+      <FacultyRegistrationModal
+        isOpen={isFacultyRegOpen}
+        onClose={() => setIsFacultyRegOpen(false)}
+        defaultDepartmentId={selectedDeptId || undefined}
+        onSuccess={() => {
+          fetchInitialData();
+          if (selectedDeptId) handleSelectDepartment(selectedDeptId);
+        }}
+      />
     </div>
   );
 };

@@ -31,9 +31,20 @@ class TenantMixin:
             return qs.none()
         if user.role == 'SUPER_ADMIN':
             return qs
+        if not user.college_id:
+            return qs.none()
         if hasattr(qs.model, 'college_id'):
             return qs.filter(college=user.college)
         return qs
+
+    def get_object(self):
+        obj = super().get_object()
+        if (self.request.user.role != 'SUPER_ADMIN' and
+                self.request.method not in ('GET', 'HEAD', 'OPTIONS') and
+                hasattr(obj, 'college_id') and obj.college_id is None):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only Super Admin may modify shared catalog records.')
+        return obj
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -52,7 +63,9 @@ class DepartmentScopeMixin(TenantMixin):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
-        if user.role in ('HOD', 'DEPARTMENT_INCHARGE') and user.department:
+        if user.role in ('HOD', 'DEPARTMENT_INCHARGE'):
+            if not user.department_id:
+                return qs.none()
             if hasattr(qs.model, 'department_id'):
                 return qs.filter(department=user.department)
         if user.role == 'FACULTY':

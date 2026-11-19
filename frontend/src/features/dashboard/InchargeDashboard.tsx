@@ -1,3 +1,4 @@
+import { SecureLink, SecureImage, openPrivateFile } from '../../api/privateMedia';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
@@ -194,7 +195,7 @@ export const InchargeDashboard: React.FC<InchargeDashboardProps> = ({ initialVie
       
       // Trigger browser file download
       if (res.data?.file_url) {
-        window.open(res.data.file_url, '_blank');
+        void openPrivateFile(res.data.file_url);
       }
 
       // Refresh stored reports list
@@ -408,7 +409,7 @@ export const InchargeDashboard: React.FC<InchargeDashboardProps> = ({ initialVie
                       {/* Faculty Profile Photo / Avatar */}
                       <div className="relative shrink-0">
                         {facultyPhoto ? (
-                          <img
+                          <SecureImage
                             src={facultyPhoto}
                             alt={facultyName}
                             className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow-md shadow-indigo-500/10"
@@ -668,7 +669,7 @@ export const InchargeDashboard: React.FC<InchargeDashboardProps> = ({ initialVie
                   {/* Submit to HOD Action Button */}
                   <div className="flex items-center gap-3 w-full sm:w-auto">
                     {mergedReportResult.download_url && (
-                      <a
+                      <SecureLink
                         href={mergedReportResult.download_url}
                         target="_blank"
                         rel="noreferrer"
@@ -676,7 +677,7 @@ export const InchargeDashboard: React.FC<InchargeDashboardProps> = ({ initialVie
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Preview</span>
-                      </a>
+                      </SecureLink>
                     )}
                     <button
                       type="button"
@@ -825,7 +826,7 @@ export const InchargeDashboard: React.FC<InchargeDashboardProps> = ({ initialVie
                           )}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <a
+                          <SecureLink
                             href={report.download_url}
                             target="_blank"
                             rel="noreferrer"
@@ -834,7 +835,7 @@ export const InchargeDashboard: React.FC<InchargeDashboardProps> = ({ initialVie
                           >
                             <Download className="w-3 h-3 text-indigo-600" />
                             <span>Download</span>
-                          </a>
+                          </SecureLink>
                         </td>
                       </tr>
                     ))}

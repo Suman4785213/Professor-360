@@ -1,8 +1,10 @@
+import { openPrivateFile } from '../../api/privateMedia';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { apiClient } from '../../api/client';
 import { NotificationItem } from '../../types';
+import { Professor360Logo } from '../common/Professor360Logo';
 import {
   LogOut,
   Bell,
@@ -15,6 +17,8 @@ import {
   ShieldCheck,
   User,
   ChevronDown,
+  Download,
+  FileText,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,7 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCommandPalette,
   onOpenFeedback,
 }) => {
-  const { user, logout, switchDemoRole } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const navigate = useNavigate();
 
   const [unreadCount, setUnreadCount] = useState<number>(0);
@@ -38,33 +42,27 @@ export const Header: React.FC<HeaderProps> = ({
   const [isNotifOpen, setIsNotifOpen] = useState<boolean>(false);
   const [isSuperAdminProfileOpen, setIsSuperAdminProfileOpen] = useState<boolean>(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const notifMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close Super Admin profile menu on outside click
+  // Close profile menu or notification dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
         setIsSuperAdminProfileOpen(false);
       }
+      if (notifMenuRef.current && !notifMenuRef.current.contains(event.target as Node)) {
+        setIsNotifOpen(false);
+      }
     };
-    if (isSuperAdminProfileOpen) {
+    if (isSuperAdminProfileOpen || isNotifOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isSuperAdminProfileOpen]);
-
-  const roleDemoAccounts = [
-    { label: 'Super Admin', email: 'admin@iqac.local', role: 'SUPER_ADMIN' },
-    { label: 'College Management', email: 'management@demo.edu', role: 'COLLEGE_MANAGEMENT' },
-    { label: 'IQAC Coordinator', email: 'iqac@demo.edu', role: 'IQAC' },
-    { label: 'HOD (CSE)', email: 'hod.cse@demo.edu', role: 'HOD' },
-    { label: 'Dept In-charge (CSE)', email: 'incharge.cse@demo.edu', role: 'DEPARTMENT_INCHARGE' },
-    { label: 'Faculty (Prof. Smith)', email: 'faculty.smith@demo.edu', role: 'FACULTY' },
-  ];
+  }, [isSuperAdminProfileOpen, isNotifOpen]);
 
   const fetchUnreadNotifications = async () => {
-    if (user?.role === 'SUPER_ADMIN') return;
     try {
       const [countRes, listRes] = await Promise.all([
         apiClient.get('/notifications/unread-count/').catch(() => ({ data: { unread_count: 0 } })),
@@ -78,11 +76,9 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   useEffect(() => {
-    if (user?.role !== 'SUPER_ADMIN') {
-      fetchUnreadNotifications();
-      const interval = setInterval(fetchUnreadNotifications, 15000);
-      return () => clearInterval(interval);
-    }
+    fetchUnreadNotifications();
+    const interval = setInterval(fetchUnreadNotifications, 15000);
+    return () => clearInterval(interval);
   }, [user?.id, user?.role]);
 
   const handleMarkRead = async (id: string) => {
@@ -95,6 +91,21 @@ export const Header: React.FC<HeaderProps> = ({
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await apiClient.post('/notifications/mark-all-read/');
+    } catch {
+      // Fallback
+      notifications.forEach((n) => {
+        if (!n.is_read) {
+          apiClient.patch(`/notifications/${n.id}/read/`).catch(() => {});
+        }
+      });
+    }
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadCount(0);
   };
 
   const handleNavigateToRecord = (n: NotificationItem) => {
@@ -139,9 +150,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-700 flex items-center justify-center text-white font-black shadow-md shadow-brand-500/20 shrink-0">
-              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
+            <Professor360Logo size="md" className="shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
@@ -158,37 +167,106 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Top-Right: Super Admin Profile Icon */}
-        <div className="relative" ref={profileMenuRef}>
-          <button
-            type="button"
-            id="superadmin-profile-btn"
-            onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
-            className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
-              isSuperAdminProfileOpen
-                ? 'bg-slate-100 border-slate-300 ring-2 ring-brand-500/20'
-                : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
-            }`}
-            aria-label="Super Admin Profile Menu"
-            aria-expanded={isSuperAdminProfileOpen}
-          >
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-brand-600 to-indigo-700 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
-              <User className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div className="hidden sm:block text-left">
-              <p className="text-xs font-bold text-slate-800 leading-tight">
-                {user?.full_name || 'Super Admin'}
-              </p>
-              <p className="text-[10px] text-slate-500 font-medium">
-                Super Administrator
-              </p>
-            </div>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
-                isSuperAdminProfileOpen ? 'rotate-180 text-brand-600' : ''
+        {/* Top-Right: Notification Bell & Super Admin Profile Icon */}
+        <div className="flex items-center gap-3">
+          {/* Notification Bell Dropdown */}
+          <div className="relative" ref={notifMenuRef}>
+            <button
+              type="button"
+              id="superadmin-notification-btn"
+              onClick={() => setIsNotifOpen(!isNotifOpen)}
+              className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              aria-label={`Notifications, ${unreadCount} unread`}
+            >
+              <Bell className="w-5 h-5 text-slate-700" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[10px] font-black flex items-center justify-center shadow-xs">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-xl py-3 z-50 animate-in fade-in-50">
+                <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Platform Notifications ({unreadCount} new)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNotifOpen(false);
+                      navigate('/notifications');
+                    }}
+                    className="text-xs text-brand-600 hover:text-brand-700 font-semibold cursor-pointer"
+                  >
+                    View All
+                  </button>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+                  {notifications.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-400">No new notifications</div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={() => handleNavigateToRecord(n)}
+                        className={`p-3.5 hover:bg-slate-50 cursor-pointer transition-colors ${
+                          !n.is_read ? 'bg-brand-50/40' : ''
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-bold text-slate-800">{n.title}</p>
+                          {!n.is_read && (
+                            <span className="w-2 h-2 rounded-full bg-brand-600 shrink-0 mt-1" />
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 line-clamp-3 mt-0.5 whitespace-pre-line">{n.body}</p>
+                        <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                          <span className="font-semibold text-brand-600">{n.category || 'SYSTEM'}</span>
+                          <span>
+                            {new Date(n.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              type="button"
+              id="superadmin-profile-btn"
+              onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
+              className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
+                isSuperAdminProfileOpen
+                  ? 'bg-slate-100 border-slate-300 ring-2 ring-brand-500/20'
+                  : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
               }`}
-            />
-          </button>
+              aria-label="Super Admin Profile Menu"
+              aria-expanded={isSuperAdminProfileOpen}
+            >
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-brand-600 to-indigo-700 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
+                <User className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <div className="hidden sm:block text-left">
+                <p className="text-xs font-bold text-slate-800 leading-tight">
+                  {user?.full_name || 'Super Admin'}
+                </p>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  Super Administrator
+                </p>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isSuperAdminProfileOpen ? 'rotate-180 text-brand-600' : ''
+                }`}
+              />
+            </button>
 
           {/* Profile Area Open Popover */}
           {isSuperAdminProfileOpen && (
@@ -226,6 +304,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
+        </div>
       </header>
     );
   }
@@ -250,9 +329,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-700 flex items-center justify-center text-white font-black shadow-md shadow-brand-500/20 shrink-0">
-              <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
+            <Professor360Logo size="md" className="shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
@@ -269,73 +346,204 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Top-Right: Admin1 Profile Icon */}
-        <div className="relative" ref={profileMenuRef}>
-          <button
-            type="button"
-            id="admin1-profile-btn"
-            onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
-            className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
-              isSuperAdminProfileOpen
-                ? 'bg-slate-100 border-slate-300 ring-2 ring-brand-500/20'
-                : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
-            }`}
-            aria-label="Admin1 Profile Menu"
-            aria-expanded={isSuperAdminProfileOpen}
-          >
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-amber-600 to-brand-600 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
-              <User className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div className="hidden sm:block text-left">
-              <p className="text-xs font-bold text-slate-800 leading-tight">
-                {user?.full_name || 'Admin1'}
-              </p>
-              <p className="text-[10px] text-slate-500 font-medium">
-                Principal / Dean / Chairman
-              </p>
-            </div>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
-                isSuperAdminProfileOpen ? 'rotate-180 text-brand-600' : ''
-              }`}
-            />
-          </button>
-
-          {/* Profile Area Open Popover */}
-          {isSuperAdminProfileOpen && (
-            <div
-              id="admin1-profile-dropdown"
-              className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl py-3 px-3 z-50 animate-in fade-in-50"
+        {/* Top-Right: Notification Bell & Admin1 Profile Icon */}
+        <div className="flex items-center gap-3">
+          {/* Notification Button & Dropdown */}
+          <div className="relative" ref={notifMenuRef}>
+            <button
+              type="button"
+              id="management-notif-btn"
+              onClick={() => setIsNotifOpen((prev) => !prev)}
+              className="relative p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer border border-slate-200"
+              aria-label="Management Notifications"
             >
-              <div className="px-3 py-2 border-b border-slate-100">
-                <p className="text-xs font-bold text-slate-900">
-                  {user?.full_name || 'Admin1 (Principal)'}
-                </p>
-                <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
-                  {user?.email}
-                </p>
-                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
-                  <ShieldCheck className="w-3 h-3 text-amber-600" />
-                  Admin1 • College Management
+              <Bell className="w-5 h-5 text-amber-700" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div
+                id="management-notif-dropdown"
+                className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl py-3 px-3 z-50 animate-in fade-in-50"
+              >
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-extrabold bg-amber-100 text-amber-800 rounded-full">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  {notifications.some((n) => !n.is_read) && (
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllRead()}
+                      className="text-[11px] text-amber-700 hover:text-amber-900 font-semibold cursor-pointer"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 my-1">
+                  {notifications.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">
+                      No notifications received yet
+                    </div>
+                  ) : (
+                    notifications.map((n) => {
+                      const isReportNotif =
+                        n.category === 'REPORT' ||
+                        n.notification_type === 'HOD_ADMIN_REPORT_SUBMISSION' ||
+                        n.title?.includes('Report');
+                      const reportId = n.metadata?.report_id || n.related_id;
+                      const deptName = n.metadata?.department_name || n.metadata?.department_code;
+                      const hodName = n.metadata?.hod_name;
+                      const submittedAt = n.metadata?.submitted_at || n.created_at;
+                      const reportStatus = n.metadata?.report_status || 'SUBMITTED';
+
+                      return (
+                        <div
+                          key={n.id}
+                          className={`p-3 text-xs transition-colors rounded-xl ${
+                            !n.is_read ? 'bg-amber-50/50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {deptName && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                                  {deptName}
+                                </span>
+                              )}
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {reportStatus}
+                              </span>
+                            </div>
+                            {!n.is_read && (
+                              <span className="w-2 h-2 rounded-full bg-amber-600 shrink-0 mt-1" />
+                            )}
+                          </div>
+
+                          <p className="font-bold text-slate-900 mt-1.5 leading-snug">
+                            {n.metadata?.report_title || n.title}
+                          </p>
+
+                          {hodName && (
+                            <p className="text-[11px] text-slate-600 mt-0.5">
+                              Submitted by HOD: <strong className="text-slate-800">{hodName}</strong>
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-100">
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(submittedAt).toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+
+                            {isReportNotif && reportId && (
+                              <button
+                                type="button"
+                                id={`mgmt-notif-download-${n.id}`}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  handleMarkRead(n.id);
+                                  void openPrivateFile(`/api/v1/reports/${reportId}/download/`);
+                                  setIsNotifOpen(false);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] shadow-xs transition cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>View / Download</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
+            )}
+          </div>
 
-              <div className="pt-2">
-                <button
-                  type="button"
-                  id="admin1-logout-btn"
-                  onClick={() => {
-                    setIsSuperAdminProfileOpen(false);
-                    logout();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
-                </button>
+          {/* Admin1 Profile Menu */}
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              type="button"
+              id="admin1-profile-btn"
+              onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
+              className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
+                isSuperAdminProfileOpen
+                  ? 'bg-slate-100 border-slate-300 ring-2 ring-brand-500/20'
+                  : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
+              }`}
+              aria-label="Admin1 Profile Menu"
+              aria-expanded={isSuperAdminProfileOpen}
+            >
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-amber-600 to-brand-600 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
+                <User className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-            </div>
-          )}
+              <div className="hidden sm:block text-left">
+                <p className="text-xs font-bold text-slate-800 leading-tight">
+                  {user?.full_name || 'Admin1'}
+                </p>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  Principal / Dean / Chairman
+                </p>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isSuperAdminProfileOpen ? 'rotate-180 text-brand-600' : ''
+                }`}
+              />
+            </button>
+
+            {/* Profile Area Open Popover */}
+            {isSuperAdminProfileOpen && (
+              <div
+                id="admin1-profile-dropdown"
+                className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl py-3 px-3 z-50 animate-in fade-in-50"
+              >
+                <div className="px-3 py-2 border-b border-slate-100">
+                  <p className="text-xs font-bold text-slate-900">
+                    {user?.full_name || 'Admin1 (Principal)'}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
+                    {user?.email}
+                  </p>
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                    <ShieldCheck className="w-3 h-3 text-amber-600" />
+                    Admin1 • College Management
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    id="admin1-logout-btn"
+                    onClick={() => {
+                      setIsSuperAdminProfileOpen(false);
+                      logout();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
     );
@@ -361,9 +569,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-700 flex items-center justify-center text-white font-black shadow-md shadow-teal-500/20 shrink-0">
-              <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
+            <Professor360Logo size="md" className="shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
@@ -380,73 +586,204 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right Side: Profile Icon, Admin2 Name & Logout Popover */}
-        <div className="relative" ref={profileMenuRef}>
-          <button
-            type="button"
-            id="admin2-profile-btn"
-            onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
-            className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
-              isSuperAdminProfileOpen
-                ? 'bg-slate-100 border-slate-300 ring-2 ring-teal-500/20'
-                : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
-            }`}
-            aria-label="Admin2 Profile Menu"
-            aria-expanded={isSuperAdminProfileOpen}
-          >
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-teal-600 to-cyan-700 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
-              <User className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div className="hidden sm:block text-left">
-              <p className="text-xs font-bold text-slate-800 leading-tight">
-                {user?.full_name || 'Admin2'}
-              </p>
-              <p className="text-[10px] text-slate-500 font-medium">
-                IQAC Member / Coordinator
-              </p>
-            </div>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
-                isSuperAdminProfileOpen ? 'rotate-180 text-teal-600' : ''
-              }`}
-            />
-          </button>
-
-          {/* Profile Area Open Popover */}
-          {isSuperAdminProfileOpen && (
-            <div
-              id="admin2-profile-dropdown"
-              className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl py-3 px-3 z-50 animate-in fade-in-50"
+        {/* Right Side: Notification Bell & Admin2 Profile Icon */}
+        <div className="flex items-center gap-3">
+          {/* Notification Button & Dropdown */}
+          <div className="relative" ref={notifMenuRef}>
+            <button
+              type="button"
+              id="iqac-notif-btn"
+              onClick={() => setIsNotifOpen((prev) => !prev)}
+              className="relative p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer border border-slate-200"
+              aria-label="IQAC Notifications"
             >
-              <div className="px-3 py-2 border-b border-slate-100">
-                <p className="text-xs font-bold text-slate-900">
-                  {user?.full_name || 'Dr. Suresh Sharma (IQAC)'}
-                </p>
-                <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
-                  {user?.email}
-                </p>
-                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200">
-                  <ShieldCheck className="w-3 h-3 text-teal-600" />
-                  Admin2 • IQAC Member
+              <Bell className="w-5 h-5 text-teal-700" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div
+                id="iqac-notif-dropdown"
+                className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl py-3 px-3 z-50 animate-in fade-in-50"
+              >
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-extrabold bg-teal-100 text-teal-800 rounded-full">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  {notifications.some((n) => !n.is_read) && (
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllRead()}
+                      className="text-[11px] text-teal-700 hover:text-teal-900 font-semibold cursor-pointer"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 my-1">
+                  {notifications.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">
+                      No notifications received yet
+                    </div>
+                  ) : (
+                    notifications.map((n) => {
+                      const isReportNotif =
+                        n.category === 'REPORT' ||
+                        n.notification_type === 'HOD_ADMIN_REPORT_SUBMISSION' ||
+                        n.title?.includes('Report');
+                      const reportId = n.metadata?.report_id || n.related_id;
+                      const deptName = n.metadata?.department_name || n.metadata?.department_code;
+                      const hodName = n.metadata?.hod_name;
+                      const submittedAt = n.metadata?.submitted_at || n.created_at;
+                      const reportStatus = n.metadata?.report_status || 'SUBMITTED';
+
+                      return (
+                        <div
+                          key={n.id}
+                          className={`p-3 text-xs transition-colors rounded-xl ${
+                            !n.is_read ? 'bg-teal-50/50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {deptName && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                                  {deptName}
+                                </span>
+                              )}
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {reportStatus}
+                              </span>
+                            </div>
+                            {!n.is_read && (
+                              <span className="w-2 h-2 rounded-full bg-teal-600 shrink-0 mt-1" />
+                            )}
+                          </div>
+
+                          <p className="font-bold text-slate-900 mt-1.5 leading-snug">
+                            {n.metadata?.report_title || n.title}
+                          </p>
+
+                          {hodName && (
+                            <p className="text-[11px] text-slate-600 mt-0.5">
+                              Submitted by HOD: <strong className="text-slate-800">{hodName}</strong>
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-100">
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(submittedAt).toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+
+                            {isReportNotif && reportId && (
+                              <button
+                                type="button"
+                                id={`iqac-notif-download-${n.id}`}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  handleMarkRead(n.id);
+                                  void openPrivateFile(`/api/v1/reports/${reportId}/download/`);
+                                  setIsNotifOpen(false);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[10px] shadow-xs transition cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>View / Download</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
+            )}
+          </div>
 
-              <div className="pt-2">
-                <button
-                  type="button"
-                  id="admin2-logout-btn"
-                  onClick={() => {
-                    setIsSuperAdminProfileOpen(false);
-                    logout();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
-                </button>
+          {/* Admin2 Profile Menu */}
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              type="button"
+              id="admin2-profile-btn"
+              onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
+              className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
+                isSuperAdminProfileOpen
+                  ? 'bg-slate-100 border-slate-300 ring-2 ring-teal-500/20'
+                  : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
+              }`}
+              aria-label="Admin2 Profile Menu"
+              aria-expanded={isSuperAdminProfileOpen}
+            >
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-teal-600 to-cyan-700 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
+                <User className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-            </div>
-          )}
+              <div className="hidden sm:block text-left">
+                <p className="text-xs font-bold text-slate-800 leading-tight">
+                  {user?.full_name || 'Admin2'}
+                </p>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  IQAC Member / Coordinator
+                </p>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isSuperAdminProfileOpen ? 'rotate-180 text-teal-600' : ''
+                }`}
+              />
+            </button>
+
+            {/* Profile Area Open Popover */}
+            {isSuperAdminProfileOpen && (
+              <div
+                id="admin2-profile-dropdown"
+                className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl py-3 px-3 z-50 animate-in fade-in-50"
+              >
+                <div className="px-3 py-2 border-b border-slate-100">
+                  <p className="text-xs font-bold text-slate-900">
+                    {user?.full_name || 'Dr. Suresh Sharma (IQAC)'}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
+                    {user?.email}
+                  </p>
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200">
+                    <ShieldCheck className="w-3 h-3 text-teal-600" />
+                    Admin2 • IQAC Member
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    id="admin2-logout-btn"
+                    onClick={() => {
+                      setIsSuperAdminProfileOpen(false);
+                      logout();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
     );
@@ -476,9 +813,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-2.5 cursor-pointer select-none"
             title="Go to Main Dashboard"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-blue-700 flex items-center justify-center text-white font-black shadow-md shadow-indigo-500/20 shrink-0">
-              <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
+            <Professor360Logo size="md" className="shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
@@ -568,6 +903,231 @@ export const Header: React.FC<HeaderProps> = ({
   }
 
   // ==========================================
+  // HEAD OF DEPARTMENT (HOD) CLEAN HEADER
+  // ==========================================
+  if (user?.role === 'HOD') {
+    return (
+      <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 sm:px-6 bg-white border-b border-slate-200/90 shadow-xs">
+        {/* Left Side: Professor360 Logo & Application Name */}
+        <div className="flex items-center gap-3">
+          {onToggleMobileSidebar && (
+            <button
+              type="button"
+              onClick={onToggleMobileSidebar}
+              className="md:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              aria-label="Toggle navigation menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
+
+          <div
+            onClick={() => navigate('/hod/downloads')}
+            className="flex items-center gap-2.5 cursor-pointer select-none"
+            title="Professor360 - HOD Portal"
+          >
+            <Professor360Logo size="md" className="shrink-0" />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                  Professor360
+                </span>
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-200">
+                  HOD • {user?.department_name || 'Department'}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 font-medium hidden sm:block">
+                {user?.college_name || 'Demo Engineering College'} • Head of Department
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Side: Notification Icon & HOD Profile Icon */}
+        <div className="flex items-center gap-3">
+          {/* Notification Button & Dropdown */}
+          <div className="relative" ref={notifMenuRef}>
+            <button
+              type="button"
+              id="hod-notif-btn"
+              onClick={() => setIsNotifOpen((prev) => !prev)}
+              className="relative p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer border border-slate-200"
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5 text-purple-700" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div
+                id="hod-notif-dropdown"
+                className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl py-3 px-3 z-50 animate-in fade-in-50"
+              >
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-extrabold bg-purple-100 text-purple-800 rounded-full">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNotifOpen(false);
+                      navigate('/hod/downloads');
+                    }}
+                    className="text-[11px] text-purple-600 hover:text-purple-800 font-semibold cursor-pointer"
+                  >
+                    View All
+                  </button>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 my-1">
+                  {notifications.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">
+                      No notifications received yet
+                    </div>
+                  ) : (
+                    notifications.map((n) => {
+                      const isReportNotif =
+                        n.category === 'REPORT' ||
+                        n.notification_type === 'HOD_REPORT_SUBMISSION' ||
+                        n.title?.includes('Report');
+                      const reportId = n.related_id || n.metadata?.report_id;
+                      return (
+                        <div
+                          key={n.id}
+                          className={`p-3 text-xs transition-colors rounded-xl ${
+                            !n.is_read ? 'bg-purple-50/50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-bold text-slate-900 leading-tight">
+                              {n.title}
+                            </p>
+                            {!n.is_read && (
+                              <span className="w-2 h-2 rounded-full bg-purple-600 shrink-0 mt-1" />
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">
+                            {n.body}
+                          </p>
+                          <div className="flex items-center justify-between mt-2 pt-1">
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(n.created_at).toLocaleDateString([], {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                            {isReportNotif && reportId && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  handleMarkRead(n.id);
+                                  try {
+                                    await apiClient.post(`/reports/${reportId}/hod-download/`);
+                                  } catch (err) {}
+                                  void openPrivateFile(`/api/v1/reports/${reportId}/download/`);
+                                  navigate('/hod/downloads');
+                                  setIsNotifOpen(false);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] shadow-xs transition cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Download</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* HOD Profile Section */}
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              type="button"
+              id="hod-profile-btn"
+              onClick={() => setIsSuperAdminProfileOpen((prev) => !prev)}
+              className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all cursor-pointer border ${
+                isSuperAdminProfileOpen
+                  ? 'bg-slate-100 border-slate-300 ring-2 ring-purple-500/20'
+                  : 'hover:bg-slate-50 border-transparent hover:border-slate-200'
+              }`}
+              aria-label="HOD Profile Menu"
+              aria-expanded={isSuperAdminProfileOpen}
+            >
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-purple-700 to-indigo-700 text-white font-bold flex items-center justify-center shadow-xs text-xs sm:text-sm">
+                <User className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <div className="hidden sm:block text-left">
+                <p className="text-xs font-bold text-slate-800 leading-tight">
+                  {user?.full_name || 'Head of Department'}
+                </p>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  HOD Profile
+                </p>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  isSuperAdminProfileOpen ? 'rotate-180 text-purple-600' : ''
+                }`}
+              />
+            </button>
+
+            {/* Profile Area Open Popover */}
+            {isSuperAdminProfileOpen && (
+              <div
+                id="hod-profile-dropdown"
+                className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl py-3 px-3 z-50 animate-in fade-in-50"
+              >
+                <div className="px-3 py-2 border-b border-slate-100">
+                  <p className="text-xs font-bold text-slate-900">
+                    {user?.full_name || 'Head of Department'}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
+                    {user?.email}
+                  </p>
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-purple-50 text-purple-800 border border-purple-200">
+                    <ShieldCheck className="w-3 h-3 text-purple-600" />
+                    HOD • {user?.department_name || 'Engineering'}
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    id="hod-logout-btn"
+                    onClick={() => {
+                      setIsSuperAdminProfileOpen(false);
+                      logout();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  // ==========================================
   // STANDARD HEADER FOR INSTITUTIONAL ROLES
   // ==========================================
   return (
@@ -585,9 +1145,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-700 flex items-center justify-center text-white font-bold shadow-md shadow-brand-500/20 shrink-0">
-          <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
-        </div>
+        <Professor360Logo size="md" className="shrink-0" />
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-black tracking-tight uppercase text-brand-600">
@@ -657,24 +1215,20 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Ask Copilot</span>
         </button>
 
-        {/* Role Quick Switcher for Demo */}
-        <div className="hidden lg:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
-          <span className="text-[10px] font-bold text-slate-500 px-1.5 uppercase tracking-wider">
-            Role:
-          </span>
-          <select
-            value={user?.email || ''}
-            onChange={(e) => switchDemoRole(e.target.value)}
-            className="bg-white text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg py-1 px-2 shadow-xs focus:ring-2 focus:ring-brand-500 focus:outline-none cursor-pointer"
-            aria-label="Switch demo role"
-          >
-            {roleDemoAccounts.map((acc) => (
-              <option key={acc.email} value={acc.email}>
-                {acc.label} ({acc.role})
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Active Authenticated Role & College Badge */}
+        {user && (
+          <div className="hidden lg:flex items-center gap-2 bg-slate-100/90 py-1.5 px-3 rounded-xl border border-slate-200">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <span className="text-xs font-bold text-slate-800 tracking-tight">
+              {user.role ? user.role.replace(/_/g, ' ') : 'USER'}
+            </span>
+            {user.college_name && (
+              <span className="text-[11px] text-slate-500 max-w-[150px] truncate border-l border-slate-300 pl-2 font-medium">
+                {user.college_name}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Notification Bell Dropdown */}
         <div className="relative">

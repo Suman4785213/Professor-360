@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.utils import timezone
+from django.db import transaction
 
 from core.mixins import TenantMixin
 from core.permissions import IsDepartmentIncharge, IsHOD, IsIQAC
@@ -53,19 +54,20 @@ class VerificationViewSet(TenantMixin, viewsets.ReadOnlyModelViewSet):
         if user.role == 'FACULTY':
             return qs.filter(activity__faculty=user)
         elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
-            if user.department:
-                return qs.filter(activity__department=user.department)
+            return qs.filter(activity__department=user.department) if user.department_id else qs.none()
         return qs
 
     @action(detail=True, methods=['post'], permission_classes=[IsDepartmentIncharge], url_path='incharge-verify')
+    @transaction.atomic
     def incharge_verify(self, request, pk=None):
         rec = self.get_object()
-        activity = rec.activity
+        activity = Activity.objects.select_for_update().get(pk=rec.activity_id)
+        rec = VerificationRecord.objects.select_for_update().get(pk=rec.pk)
         decision = request.data.get('decision')  # 'APPROVE' or 'REJECT'
         comment = request.data.get('comment', '').strip()
 
         # Enforce state machine
-        if activity.status != ActivityStatus.PENDING_INCHARGE:
+        if activity.status not in (ActivityStatus.PENDING_INCHARGE, ActivityStatus.RETURNED_TO_INCHARGE):
             return Response(
                 {'detail': f'Activity is not pending In-charge verification (current status: {activity.status}).'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -138,9 +140,11 @@ class VerificationViewSet(TenantMixin, viewsets.ReadOnlyModelViewSet):
         })
 
     @action(detail=True, methods=['post'], permission_classes=[IsHOD], url_path='hod-verify')
+    @transaction.atomic
     def hod_verify(self, request, pk=None):
         rec = self.get_object()
-        activity = rec.activity
+        activity = Activity.objects.select_for_update().get(pk=rec.activity_id)
+        rec = VerificationRecord.objects.select_for_update().get(pk=rec.pk)
         decision = request.data.get('decision')
         comment = request.data.get('comment', '').strip()
 
@@ -218,9 +222,11 @@ class VerificationViewSet(TenantMixin, viewsets.ReadOnlyModelViewSet):
         })
 
     @action(detail=True, methods=['post'], permission_classes=[IsIQAC], url_path='iqac-verify')
+    @transaction.atomic
     def iqac_verify(self, request, pk=None):
         rec = self.get_object()
-        activity = rec.activity
+        activity = Activity.objects.select_for_update().get(pk=rec.activity_id)
+        rec = VerificationRecord.objects.select_for_update().get(pk=rec.pk)
         decision = request.data.get('decision')
         comment = request.data.get('comment', '').strip()
         target_stage = request.data.get('target', 'DEPARTMENT_INCHARGE')

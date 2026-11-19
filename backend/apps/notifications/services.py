@@ -1,3 +1,4 @@
+from django.db import transaction
 """
 Notifications & Workflow Automation Services — Phase 10
 Event Dispatcher, Task Lifecycle, Reminder Engine, Escalation Engine,
@@ -420,12 +421,17 @@ class TaskService:
         return task
 
     @staticmethod
+    @transaction.atomic
     def update_status(task, new_status, actor, comment=''):
         """Transitions task status with audit history and notification."""
+        task = IQACTask.objects.select_for_update().get(pk=task.pk)
         old_status = task.status
         if old_status == new_status:
             return task
 
+        if old_status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED) and new_status != TaskStatus.TODO:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError('Reopen a closed task before changing its status.')
         task.status = new_status
         if new_status == TaskStatus.COMPLETED:
             task.completed_at = timezone.now()

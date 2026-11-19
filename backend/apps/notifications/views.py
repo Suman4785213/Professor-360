@@ -1,3 +1,4 @@
+from django.db import transaction
 import datetime
 from django.utils import timezone
 from django.db.models import Q
@@ -37,7 +38,7 @@ from apps.notifications.services import (
 )
 
 
-class NotificationViewSet(viewsets.ModelViewSet):
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Central Notification Center API with categorization, unread filters,
     bulk mark-as-read, unread count, and user preferences.
@@ -84,7 +85,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='mark-all-read')
     def mark_all_read(self, request):
         user = request.user
-        updated_count = Notification.objects.filter(recipient=user, is_read=False).update(
+        updated_count = self.get_queryset().filter(is_read=False).update(
             is_read=True, read_at=timezone.now()
         )
         return Response({'status': 'all notifications marked as read', 'updated_count': updated_count})
@@ -92,7 +93,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='unread-count')
     def unread_count(self, request):
         user = request.user
-        count = Notification.objects.filter(recipient=user, is_read=False).count()
+        count = self.get_queryset().filter(is_read=False).count()
         return Response({'unread_count': count})
 
     @action(detail=False, methods=['get', 'post', 'patch'], url_path='preferences')
@@ -173,8 +174,10 @@ class NotificationViewSet(viewsets.ModelViewSet):
         return Response(NotificationSerializer(notification).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='respond-report-request')
+    @transaction.atomic
     def respond_report_request(self, request, pk=None):
         notification = self.get_object()
+        notification = Notification.objects.select_for_update().get(pk=notification.pk)
         user = request.user
 
         if notification.recipient_id != user.id:
@@ -196,6 +199,11 @@ class NotificationViewSet(viewsets.ModelViewSet):
             'No': "Unable to submit the report at this moment.",
         }
         response_text = response_map[response_choice]
+        if notification.notification_type != 'INCHARGE_REPORT_REQUEST' or not notification.sender or notification.sender.college_id != user.college_id:
+            return Response({'error': 'Not a report request for this institution.'}, status=400)
+        if (notification.metadata or {}).get('response') == response_choice:
+            return Response({'status': 'success', 'response': response_choice, 'response_text': response_text,
+                             'notification': NotificationSerializer(notification).data})
 
         # Update current notification
         notification.metadata = notification.metadata or {}
@@ -244,7 +252,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
             return Response({'results': []})
 
         sent_reqs = Notification.objects.filter(
-            sender=user,
+            sender=user, college=user.college,
             notification_type='INCHARGE_REPORT_REQUEST'
         ).select_related('recipient').order_by('-created_at')
 
@@ -290,7 +298,7 @@ class IQACTaskViewSet(viewsets.ModelViewSet):
             pass
         elif user.role in [UserRole.HOD, UserRole.DEPARTMENT_INCHARGE]:
             # Scoped to department or assigned to self or created by self
-            dept_q = Q(department=user.department) if user.department else Q()
+            dept_q = Q(department=user.department) if user.department else Q(pk__in=[])
             qs = qs.filter(dept_q | Q(owner=user) | Q(creator=user))
         elif user.role == UserRole.FACULTY:
             # Strictly personal tasks
@@ -357,6 +365,12 @@ class IQACTaskViewSet(viewsets.ModelViewSet):
             deduplication_key=serializer.validated_data.get('deduplication_key', ''),
         )
         serializer.instance = task
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import PermissionDenied
+        if self.request.user.role == UserRole.COLLEGE_MANAGEMENT:
+            raise PermissionDenied('College Management has read-only oversight.')
+        instance.delete()
 
     def perform_update(self, serializer):
         user = self.request.user

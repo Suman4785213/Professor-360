@@ -3,24 +3,34 @@ Accounts — Views
 Auth endpoints, User management, and Faculty Profile workflows.
 """
 import uuid
+import hashlib
+import secrets
+import logging
+from urllib.parse import urlencode
+from django.conf import settings
+from django.core.mail import send_mail
+from django.db import transaction
+from core.throttling import PasswordResetRateThrottle
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
-from core.permissions import IsSuperAdmin, IsSuperAdminOrIQAC, IsFaculty
+from core.permissions import IsSuperAdmin, IsSuperAdminOrIQAC, IsFaculty, IsIQACOrManagement
 from core.mixins import TenantMixin
+from apps.colleges.models import College, CollegeStatus
 from apps.audit.utils import log_action
 from .models import User, UserRole, FacultyProfile, PasswordResetToken
 from .serializers import (
     UserSerializer, UserCreateSerializer, UserUpdateSerializer,
-    MeSerializer, ChangePasswordSerializer, FacultyProfileSerializer,
+    PersonalProfileUpdateSerializer, MeSerializer, ChangePasswordSerializer, FacultyProfileSerializer,
     ForgotPasswordSerializer, ResetPasswordSerializer, FacultyRegisterSerializer,
 )
 
@@ -29,27 +39,64 @@ class LoginView(TokenObtainPairView):
     """
     POST /api/v1/auth/login/
     Returns access + refresh tokens with user data.
+    Enforces multi-college tenant isolation and separate Super Admin authentication.
     """
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:
-            email = request.data.get('email', '')
+            email = request.data.get('email', '').strip()
+            college_id = request.data.get('college_id') or request.data.get('college')
+            is_super_admin_portal = request.data.get('is_super_admin') or request.data.get('portal') == 'super_admin'
+
             try:
-                user = User.objects.select_related('college', 'department').get(email=email)
+                user = User.objects.select_related('college', 'department').get(email__iexact=email)
+
+                # Tenant & Portal Isolation Checks
+                if college_id:
+                    # 1. Super Admin cannot log in via college-specific portal
+                    if user.role == UserRole.SUPER_ADMIN:
+                        return Response({
+                            'detail': 'Super Admin accounts must sign in via the dedicated Super Admin portal.',
+                            'error': 'Super Admin accounts must sign in via the dedicated Super Admin portal.'
+                        }, status=status.HTTP_403_FORBIDDEN)
+
+                    # 2. Check if user belongs to the selected college
+                    if not user.college or str(user.college.id) != str(college_id):
+                        return Response({
+                            'detail': 'Access denied. Your account is not registered with this institution. Please select your correct institution.',
+                            'error': 'Access denied. Your account is not registered with this institution. Please select your correct institution.'
+                        }, status=status.HTTP_403_FORBIDDEN)
+
+                    # 3. Check if college is active
+                    if not user.college.is_active or user.college.status != CollegeStatus.ACTIVE or user.college.is_deleted:
+                        return Response({
+                            'detail': 'This institution is currently inactive or suspended. Please contact platform administration.',
+                            'error': 'This institution is currently inactive or suspended. Please contact platform administration.'
+                        }, status=status.HTTP_403_FORBIDDEN)
+
+                elif is_super_admin_portal:
+                    # Super Admin portal validation: only SUPER_ADMIN can login here
+                    if user.role != UserRole.SUPER_ADMIN:
+                        return Response({
+                            'detail': 'Access denied. Only Super Administrators can log in through this portal. Institutional staff must sign in through their institution portal.',
+                            'error': 'Access denied. Only Super Administrators can log in through this portal. Institutional staff must sign in through their institution portal.'
+                        }, status=status.HTTP_403_FORBIDDEN)
+
                 user.last_login = timezone.now()
                 user.save(update_fields=['last_login'])
                 response.data['user'] = MeSerializer(user, context={'request': request}).data
                 response.data['success'] = True
 
                 # Requirement #19: Log login action in audit log
+                portal_desc = "Super Admin portal" if is_super_admin_portal else f"College portal ({user.college.name})" if user.college else "Default portal"
                 log_action(
                     actor=user,
                     action='LOGIN',
                     instance=user,
                     request=request,
-                    comment=f'User {user.email} logged in successfully.'
+                    comment=f'User {user.email} logged in successfully via {portal_desc}.'
                 )
             except User.DoesNotExist:
                 pass
@@ -59,14 +106,36 @@ class LoginView(TokenObtainPairView):
 class FacultyRegisterView(generics.CreateAPIView):
     """
     POST /api/v1/auth/register/faculty/
-    Allows faculty members to self-register with their selected college and department.
-    Returns access + refresh tokens and user profile for immediate login.
+    Allows IQAC Coordinator and College Management to register a new faculty member
+    for their institutional college tenant.
+    Enforces role-based permissions and strict institutional tenant isolation.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsIQACOrManagement]
     serializer_class = FacultyRegisterSerializer
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        # 1. Enforce that only IQAC and COLLEGE_MANAGEMENT can register faculty
+        if request.user.role not in (UserRole.IQAC, UserRole.COLLEGE_MANAGEMENT):
+            return Response(
+                {'error': 'Permission denied. Only IQAC Coordinator and College Management can register new faculty.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2. Enforce tenant isolation: ensure user cannot register faculty for a college they don't belong to
+        data = request.data.copy()
+        if not request.user.college_id:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Institution assignment required.')
+        if request.user.college:
+            college_id = data.get('college')
+            if college_id and str(college_id) != str(request.user.college.id):
+                return Response(
+                    {'error': 'Permission denied. You can only register faculty for your assigned institution.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            data['college'] = str(request.user.college.id)
+
+        serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
@@ -75,16 +144,16 @@ class FacultyRegisterView(generics.CreateAPIView):
         access_token = str(refresh.access_token)
 
         log_action(
-            actor=user,
+            actor=request.user,
             action='FACULTY_REGISTERED',
             instance=user,
             request=request,
-            comment=f'Faculty self-registered: {user.email} for college "{user.college.name}" ({user.department.name}).'
+            comment=f'{request.user.role} ({request.user.email}) registered faculty member: {user.email} for college "{user.college.name}" ({user.department.name}).'
         )
 
         return Response({
             'success': True,
-            'message': 'Faculty account created successfully.',
+            'message': f'Faculty account for {user.get_full_name()} created successfully.',
             'access': access_token,
             'refresh': str(refresh),
             'tokens': {
@@ -130,7 +199,7 @@ class MeView(generics.RetrieveUpdateAPIView):
 
     def get_serializer_class(self):
         if self.request.method in ('PUT', 'PATCH'):
-            return UserUpdateSerializer
+            return PersonalProfileUpdateSerializer
         return MeSerializer
 
     def update(self, request, *args, **kwargs):
@@ -176,89 +245,68 @@ class ChangePasswordView(generics.GenericAPIView):
 
 
 class ForgotPasswordView(generics.GenericAPIView):
-    """
-    POST /api/v1/auth/forgot-password/
-    Generates a secure password reset token.
-    """
     permission_classes = [AllowAny]
     serializer_class = ForgotPasswordSerializer
+    throttle_classes = [PasswordResetRateThrottle]
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
-
-        try:
-            user = User.objects.get(email=email, is_active=True)
-            # Create a 24-hour reset token
-            token_str = uuid.uuid4().hex
-            expires_at = timezone.now() + timedelta(hours=24)
-            PasswordResetToken.objects.create(
-                user=user,
-                token=token_str,
-                expires_at=expires_at
-            )
-            # Log foundation event
-            log_action(
-                actor=user,
-                action='PASSWORD_RESET_REQUESTED',
-                instance=user,
-                request=request,
-                comment=f'Password reset token generated for {user.email}.'
-            )
-            return Response({
-                'success': True,
-                'message': 'If the email exists, a password reset link has been dispatched.',
-                'reset_token': token_str  # returned for testing/development foundation
-            })
-        except User.DoesNotExist:
-            return Response({
-                'success': True,
-                'message': 'If the email exists, a password reset link has been dispatched.'
-            })
+        user = User.objects.filter(email__iexact=serializer.validated_data['email'], is_active=True).first()
+        # Console/file backends must never expose reset links in logs or files.
+        backend = settings.EMAIL_BACKEND
+        reset_url = getattr(settings, 'PASSWORD_RESET_URL', '')
+        deliverable = bool(reset_url) and backend not in (
+            'django.core.mail.backends.console.EmailBackend',
+            'django.core.mail.backends.filebased.EmailBackend',
+            'django.core.mail.backends.dummy.EmailBackend')
+        if not deliverable:
+            logging.getLogger('apps').warning('Password reset email delivery is not configured.')
+        if user and deliverable:
+            raw_token = secrets.token_urlsafe(32)
+            token = PasswordResetToken.objects.create(
+                user=user, token=hashlib.sha256(raw_token.encode()).hexdigest(),
+                expires_at=timezone.now() + timedelta(hours=1))
+            link = reset_url.split('#', 1)[0] + '#' + urlencode({'token': raw_token})
+            try:
+                sent = send_mail('Professor360 password reset',
+                    'Reset your password using this single-use link (expires in one hour): ' + link,
+                    settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False)
+                if not sent:
+                    raise RuntimeError('Email not delivered')
+            except Exception:
+                token.is_used = True
+                token.save(update_fields=['is_used'])
+                logging.getLogger('apps').warning('Password reset email delivery failed.')
+        return Response({'success': True, 'message':
+            'If an eligible account exists, reset instructions will be sent. If no email arrives, contact support.'})
 
 
 class ResetPasswordView(generics.GenericAPIView):
-    """
-    POST /api/v1/auth/reset-password/
-    Validates token and updates user password.
-    """
     permission_classes = [AllowAny]
     serializer_class = ResetPasswordSerializer
+    throttle_classes = [PasswordResetRateThrottle]
 
+    @transaction.atomic
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        token_str = serializer.validated_data['token']
-        try:
-            reset_token = PasswordResetToken.objects.get(token=token_str)
-            if not reset_token.is_valid():
-                return Response(
-                    {'success': False, 'error': 'Password reset token has expired or already been used.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            user = reset_token.user
-            user.set_password(serializer.validated_data['new_password'])
-            user.save()
-
-            reset_token.is_used = True
-            reset_token.save()
-
-            log_action(
-                actor=user,
-                action='PASSWORD_RESET_COMPLETED',
-                instance=user,
-                request=request,
-                comment=f'Password successfully reset for {user.email}.'
-            )
-            return Response({'success': True, 'message': 'Password has been successfully updated. You can now login.'})
-        except PasswordResetToken.DoesNotExist:
-            return Response(
-                {'success': False, 'error': 'Invalid reset token.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        digest = hashlib.sha256(serializer.validated_data['token'].encode()).hexdigest()
+        token = PasswordResetToken.objects.select_for_update().filter(token=digest).first()
+        if not token or not token.is_valid():
+            return Response({'detail': 'Invalid or expired reset token.'}, status=400)
+        user = User.objects.select_for_update().get(pk=token.user_id)
+        if not user.is_active:
+            return Response({'detail': 'Invalid or expired reset token.'}, status=400)
+        user.set_password(serializer.validated_data['new_password'])
+        user.save(update_fields=['password'])
+        PasswordResetToken.objects.filter(user=user, is_used=False).update(is_used=True)
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+        for outstanding in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=outstanding)
+        log_action(actor=user, action='PASSWORD_RESET_COMPLETED', instance=user, request=request,
+                   comment='Password reset completed.')
+        return Response({'success': True, 'message': 'Password has been successfully updated. You can now login.'})
 
 
 class FacultyProfileView(generics.RetrieveUpdateAPIView):
@@ -267,6 +315,7 @@ class FacultyProfileView(generics.RetrieveUpdateAPIView):
     Allows faculty to access and update their own profile permitted fields.
     """
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     serializer_class = FacultyProfileSerializer
 
     def get_object(self):
@@ -312,8 +361,8 @@ class FacultyProfileViewSet(TenantMixin, viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         if not user.is_authenticated:
             return FacultyProfile.objects.none()
-        if user.role in ['HOD', 'DEPARTMENT_INCHARGE'] and user.department:
-            return qs.filter(department=user.department)
+        if user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
+            return qs.filter(department=user.department) if user.department_id else qs.none()
         elif user.role == 'FACULTY':
             return qs.filter(user=user)
         return qs
@@ -358,12 +407,20 @@ class UserViewSet(TenantMixin, viewsets.ModelViewSet):
         if user.role != 'SUPER_ADMIN':
             qs = qs.filter(college=user.college)
         # Department isolation for HOD and In-charge
-        if user.role in ('HOD', 'DEPARTMENT_INCHARGE') and user.department:
-            return qs.filter(department=user.department)
+        if user.role in ('HOD', 'DEPARTMENT_INCHARGE'):
+            return qs.filter(department=user.department) if user.department_id else qs.none()
         # Faculty isolation (can only see self)
         if user.role == 'FACULTY':
             return qs.filter(id=user.id)
         return qs
+
+    def get_object(self):
+        obj = super().get_object()
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS') and self.request.user.role != 'SUPER_ADMIN':
+            if obj.role not in ('FACULTY', 'HOD', 'DEPARTMENT_INCHARGE'):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('Only Super Admin may manage this account.')
+        return obj
 
     def perform_create(self, serializer):
         user = self.request.user

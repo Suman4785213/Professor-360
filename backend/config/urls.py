@@ -7,6 +7,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
+from core.media import media_file
+
 from core.views import (
     health_check_view,
     HealthCheckAPIView,
@@ -45,6 +47,7 @@ api_v1_patterns = [
 ]
 
 urlpatterns = [
+    path('media/<path:path>', media_file, name='private-media'),
     # Top-level health checks (for load balancers, Kubernetes & container healthcheck)
     path('health/', health_check_view, name='health-check'),
     path('health/ready/', readiness_check_view, name='health-ready'),
@@ -73,6 +76,5 @@ handler404 = custom_handler404
 handler500 = custom_handler500
 
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 

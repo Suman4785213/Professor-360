@@ -95,14 +95,13 @@ if USE_S3:
     AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
     AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='ap-south-1')
     AWS_DEFAULT_ACL = None
-    AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
+    AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'private, no-store'}
     AWS_S3_FILE_OVERWRITE = False
     AWS_QUERYSTRING_AUTH = True  # Enforce signed private URLs for evidence documents
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 
 STORAGES = {
     "default": {
-        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage" if USE_S3 else "django.core.files.storage.FileSystemStorage",
+        "BACKEND": "core.s3_storage.PrivateS3Storage" if USE_S3 else "core.storage.PrivateFileSystemStorage",
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
@@ -113,5 +112,12 @@ STORAGES = {
 LOGGING['handlers']['console']['level'] = 'INFO'
 LOGGING['loggers']['django']['level'] = 'WARNING'
 LOGGING['loggers']['apps']['level'] = 'INFO'
-LOGGING['loggers']['core']['level'] = 'INFO'
+LOGGING['loggers'].setdefault('core', {'handlers': ['console'], 'propagate': False})['level'] = 'INFO'
 
+
+# Never send password-reset credentials to plaintext or an untrusted request Host.
+if PASSWORD_RESET_URL:
+    from urllib.parse import urlparse
+    _reset_url = urlparse(PASSWORD_RESET_URL)
+    if _reset_url.scheme != 'https' or not _reset_url.netloc or _reset_url.username or _reset_url.query or _reset_url.fragment:
+        raise ImproperlyConfigured('PASSWORD_RESET_URL must be a fixed HTTPS page URL without credentials, query or fragment.')

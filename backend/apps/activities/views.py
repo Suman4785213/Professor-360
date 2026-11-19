@@ -1,3 +1,4 @@
+from django.db import transaction
 import hashlib
 import mimetypes
 from django.db import models
@@ -63,8 +64,7 @@ class ActivityViewSet(TenantMixin, viewsets.ModelViewSet):
         if user.role == 'FACULTY':
             return qs.filter(faculty=user)
         elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
-            if user.department:
-                return qs.filter(department=user.department)
+            return qs.filter(department=user.department) if user.department_id else qs.none()
         return qs
 
     def perform_create(self, serializer):
@@ -72,12 +72,20 @@ class ActivityViewSet(TenantMixin, viewsets.ModelViewSet):
         if user.role != 'FACULTY' and not user.is_staff:
             raise PermissionDenied("Only faculty members can initiate activity submissions.")
 
-        activity = serializer.save(
-            college=user.college,
-            department=user.department,
-            faculty=user,
-            status=ActivityStatus.DRAFT
-        )
+        extra_kwargs = {
+            'college': user.college,
+            'department': user.department,
+            'faculty': user,
+            'status': ActivityStatus.DRAFT,
+        }
+        if not serializer.validated_data.get('academic_year') and user.college:
+            from apps.academic_years.models import AcademicYear
+            curr_ay = AcademicYear.objects.filter(college=user.college, is_current=True).first() or \
+                      AcademicYear.objects.filter(college=user.college, is_active=True).order_by('-start_date').first()
+            if curr_ay:
+                extra_kwargs['academic_year'] = curr_ay
+
+        activity = serializer.save(**extra_kwargs)
 
         VerificationRecord.objects.get_or_create(
             activity=activity,
@@ -94,6 +102,8 @@ class ActivityViewSet(TenantMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         activity = self.get_object()
+        if self.request.user.role != 'SUPER_ADMIN' and (self.request.user.role != 'FACULTY' or activity.faculty_id != self.request.user.id):
+            raise PermissionDenied('Only the author may edit this activity.')
         if not activity.is_editable:
             raise ValidationError(f"Activity in status '{activity.status}' cannot be edited.")
         updated_activity = serializer.save()
@@ -107,7 +117,7 @@ class ActivityViewSet(TenantMixin, viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
-        if instance.status != ActivityStatus.DRAFT and instance.faculty != self.request.user:
+        if self.request.user.role != 'FACULTY' or instance.status != ActivityStatus.DRAFT or instance.faculty != self.request.user:
             raise PermissionDenied("Only draft activities can be deleted by the author.")
         log_action(
             actor=self.request.user,
@@ -119,8 +129,10 @@ class ActivityViewSet(TenantMixin, viewsets.ModelViewSet):
         instance.delete()
 
     @action(detail=True, methods=['post'], url_path='submit')
+    @transaction.atomic
     def submit_for_verification(self, request, pk=None):
         activity = self.get_object()
+        activity = Activity.objects.select_for_update().get(pk=activity.pk)
         if activity.faculty != request.user:
             return Response({'detail': 'Only the author faculty can submit this activity.'}, status=status.HTTP_403_FORBIDDEN)
         if not activity.is_editable:
@@ -224,8 +236,7 @@ class DocumentViewSet(TenantMixin, viewsets.ModelViewSet):
         if user.role == 'FACULTY':
             return qs.filter(models.Q(uploaded_by=user) | models.Q(activity__faculty=user))
         elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
-            if user.department:
-                return qs.filter(department=user.department)
+            return qs.filter(department=user.department) if user.department_id else qs.none()
         return qs
 
     def perform_create(self, serializer):
@@ -258,8 +269,8 @@ class DocumentViewSet(TenantMixin, viewsets.ModelViewSet):
             mime_type = uploaded_file.content_type or mimetypes.guess_type(uploaded_file.name)[0] or 'application/octet-stream'
 
         doc = serializer.save(
-            college=user.college,
-            department=user.department,
+            college=serializer.validated_data['activity'].college,
+            department=serializer.validated_data['activity'].department,
             uploaded_by=user,
             file_hash=file_hash,
             file_size=file_size,
@@ -278,6 +289,13 @@ class DocumentViewSet(TenantMixin, viewsets.ModelViewSet):
             request=self.request,
             comment=f'Uploaded certificate document "{doc.file_name}" for activity "{doc.activity.title}".'
         )
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if not instance.activity.is_editable or (user.role != 'SUPER_ADMIN' and
+                (user.role != 'FACULTY' or instance.activity.faculty_id != user.id)):
+            raise PermissionDenied('Only editable activity documents may be deleted by their author.')
+        instance.delete()
 
     def _authenticate_request(self, request):
         if request.user and request.user.is_authenticated:

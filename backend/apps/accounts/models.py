@@ -172,6 +172,8 @@ class FacultyProfile(models.Model):
     joining_date = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     profile_photo = models.ImageField(upload_to='faculty/photos/', null=True, blank=True)
+    resume = models.FileField(upload_to='faculty/resumes/', null=True, blank=True)
+    experience_years = models.PositiveIntegerField(null=True, blank=True, help_text="Total professional experience in years")
     status = models.CharField(
         max_length=20,
         choices=FacultyStatus.choices,

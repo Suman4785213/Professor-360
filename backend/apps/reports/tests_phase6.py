@@ -264,12 +264,12 @@ class Phase6ReportEngineTestCase(TestCase):
         # HOD of IT tries to download CSE report -> 403 Forbidden
         self.client.force_authenticate(user=self.hod_it_user)
         res_hod = self.client.get(f'/api/reports/{rep_cse.id}/download/')
-        self.assertEqual(res_hod.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_hod.status_code, status.HTTP_404_NOT_FOUND)
 
         # Faculty of IT tries to download CSE report -> 403 Forbidden
         self.client.force_authenticate(user=self.faculty_it)
         res_fac = self.client.get(f'/api/reports/{rep_cse.id}/download/')
-        self.assertEqual(res_fac.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_fac.status_code, status.HTTP_404_NOT_FOUND)
 
         # IQAC Officer can download it
         self.client.force_authenticate(user=self.iqac_user)

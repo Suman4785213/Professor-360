@@ -221,6 +221,12 @@ class EvidenceRequirementViewSet(TenantMixin, viewsets.ModelViewSet):
     Evidence documentation benchmarks for Metrics (Section 15).
     """
     queryset = EvidenceRequirement.objects.all().select_related('metric', 'document_category')
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.user.role != 'SUPER_ADMIN':
+            qs = qs.filter(metric__college=self.request.user.college)
+        return qs
+
     serializer_class = EvidenceRequirementSerializer
     permission_classes = [permissions.IsAuthenticated, IsSuperAdminOrIQAC]
 
@@ -258,8 +264,8 @@ class EvidenceMappingViewSet(TenantMixin, viewsets.ModelViewSet):
         # Role scoping
         if user.role == 'FACULTY':
             qs = qs.filter(evidence__faculty=user)
-        elif user.role in ['HOD', 'DEPARTMENT_INCHARGE'] and user.department:
-            qs = qs.filter(evidence__department=user.department)
+        elif user.role in ['HOD', 'DEPARTMENT_INCHARGE']:
+            qs = qs.filter(evidence__department=user.department) if user.department_id else qs.none()
 
         status_param = self.request.query_params.get('status', 'ACTIVE')
         if status_param != 'ALL':

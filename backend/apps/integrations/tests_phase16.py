@@ -328,17 +328,17 @@ class Phase16IntegrationTestSuite(TestCase):
         headers = {'HTTP_X_IQAC_API_KEY': raw_token}
 
         # Authorized scope
-        resp1 = self.client.get('/api/integrations/v1/faculty/', **headers)
+        resp1 = self.client.get('/api/imports/v1/faculty/', **headers)
         self.assertEqual(resp1.status_code, status.HTTP_200_OK)
         self.assertIn('X-RateLimit-Limit', resp1)
 
         # Unauthorized scope
-        resp2 = self.client.get('/api/integrations/v1/evidence/', **headers)
+        resp2 = self.client.get('/api/imports/v1/evidence/', **headers)
         self.assertEqual(resp2.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("Missing scope evidence:read", resp2.json().get('error'))
 
         # Unauthorized write attempt
-        resp3 = self.client.post('/api/integrations/v1/activities/', {'title': 'Hack'}, **headers)
+        resp3 = self.client.post('/api/imports/v1/activities/', {'title': 'Hack'}, **headers)
         self.assertEqual(resp3.status_code, status.HTTP_403_FORBIDDEN)
 
     # 7. REST API RATE LIMITING
@@ -354,7 +354,7 @@ class Phase16IntegrationTestSuite(TestCase):
             user=self.iqac_user
         )
         headers = {'HTTP_X_IQAC_API_KEY': raw_token}
-        resp = self.client.get('/api/integrations/v1/faculty/', **headers)
+        resp = self.client.get('/api/imports/v1/faculty/', **headers)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.headers.get('X-RateLimit-Limit'), '100')
         self.assertIsNotNone(resp.headers.get('X-RateLimit-Remaining'))
@@ -389,7 +389,7 @@ class Phase16IntegrationTestSuite(TestCase):
         )
 
         headers = {'HTTP_X_IQAC_API_KEY': raw_token_a}
-        resp = self.client.get('/api/integrations/v1/faculty/', **headers)
+        resp = self.client.get('/api/imports/v1/faculty/', **headers)
         data = resp.json()
         emails = [f['email'] for f in data['results']]
         self.assertIn(self.faculty_it.email, emails)

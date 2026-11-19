@@ -197,8 +197,10 @@ class Phase11MultiTenantSaaSTests(TestCase):
         dummy_content = b"%PDF-1.4\n" + b"A" * (200 * 1024)  # 200 KB
         dummy_file = SimpleUploadedFile("oversize_cert.pdf", dummy_content, content_type="application/pdf")
 
+        draft = Activity.objects.create(college=self.college_b, department=self.dept_b,
+            faculty=self.faculty_b, title='Quota test draft', status=ActivityStatus.DRAFT)
         resp = self.client.post('/api/documents/', {
-            'activity': str(self.act_b.id),
+            'activity': str(draft.id),
             'document_type': 'CERTIFICATE',
             'file_name': 'oversize_cert.pdf',
             'file': dummy_file
@@ -328,7 +330,7 @@ class Phase11MultiTenantSaaSTests(TestCase):
         resp = self.client.get('/api/system/health/')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertIn('overall_status', resp.data)
-        self.assertIn('database', resp.data)
-        self.assertIn('storage', resp.data)
-        self.assertIn('ai_provider', resp.data)
-        self.assertEqual(resp.data['database']['status'], 'HEALTHY')
+        self.assertIn('postgresql', resp.data['services'])
+        self.assertIn('storage', resp.data['services'])
+        self.assertIn('ai', resp.data['services'])
+        self.assertEqual(resp.data['services']['postgresql']['status'], 'HEALTHY')

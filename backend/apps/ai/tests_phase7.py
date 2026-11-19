@@ -364,4 +364,5 @@ class Phase7AITestCase(TestCase):
         bad_file = SimpleUploadedFile("malicious.exe", b"binary content", content_type="application/x-msdownload")
         res = self.client.post('/api/ai/documents/upload-and-process/', {'file': bad_file}, format='multipart')
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Unsupported file format", str(res.data))
+        self.assertEqual(res.data['error']['code'], 'VALIDATION_ERROR')
+        self.assertIn('prohibited', res.data['error']['message'])

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
+import { Professor360Logo } from '../common/Professor360Logo';
 import {
   LayoutDashboard,
   FileCheck,
@@ -17,7 +18,6 @@ import {
   Bell,
   UserCheck,
   User,
-  GraduationCap,
   Building2,
   FileSpreadsheet,
   BookOpen,
@@ -33,6 +33,7 @@ import {
   CreditCard,
   LifeBuoy,
   AlertOctagon,
+  Send,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -66,21 +67,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
         ];
       case 'HOD':
         return [
-          { path: '/hod/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { path: '/ai/copilot', label: 'IQAC Copilot', icon: Sparkles },
-          { path: '/hod/work-queue', label: 'Department Queue', icon: ListTodo },
-          { path: '/tasks', label: 'Department Tasks', icon: CheckSquare },
-          { path: '/imports', label: 'Import Data', icon: UploadCloud },
-          { path: '/hod/faculty', label: 'Faculty', icon: Users },
-          { path: '/hod/verification', label: 'Verification', icon: ShieldCheck },
-          { path: '/hod/evidence', label: 'Department Evidence', icon: Award },
-          { path: '/hod/criteria/dashboard', label: 'Criteria Progress', icon: BarChart3 },
-          { path: '/hod/aqar', label: 'AQAR / SSR Data', icon: FileSpreadsheet },
-          { path: '/hod/analytics', label: 'Dept Benchmarking', icon: BarChart3 },
-          { path: '/hod/reports', label: 'Department Reports', icon: FileText },
-          { path: '/communication', label: 'Announcements', icon: Megaphone },
-          { path: '/support', label: 'Support & Help', icon: LifeBuoy },
-          { path: '/notifications', label: 'Notifications', icon: Bell },
+          { path: '/hod/downloads', label: 'Downloaded Reports', icon: FileCheck },
+          { path: '/hod/submission', label: 'Report Submission', icon: Send },
         ];
       case 'DEPARTMENT_INCHARGE':
         return [
@@ -89,20 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
         ];
       case 'FACULTY':
         return [
-          { path: '/faculty/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { path: '/ai/copilot', label: 'IQAC Copilot', icon: Sparkles },
-          { path: '/faculty/workspace', label: 'Faculty Workspace', icon: Briefcase },
-          { path: '/tasks', label: 'My Tasks', icon: CheckSquare },
-          { path: '/faculty/profile', label: 'My Profile', icon: User },
-          { path: '/faculty/activities', label: 'My Activities', icon: Layers },
-          { path: '/faculty/submissions', label: 'My Submissions', icon: FileCheck },
-          { path: '/faculty/my-evidence', label: 'My Evidence', icon: Award },
-          { path: '/faculty/criteria/dashboard', label: 'Criteria Progress', icon: BarChart3 },
-          { path: '/faculty/analytics', label: 'Output Analytics', icon: BarChart3 },
-          { path: '/faculty/reports', label: 'Reports', icon: FileText },
-          { path: '/communication', label: 'Announcements', icon: Megaphone },
-          { path: '/support', label: 'Support & Help', icon: LifeBuoy },
-          { path: '/notifications', label: 'Notifications', icon: Bell },
+          { path: '/faculty/profile', label: 'Faculty Profile', icon: User },
         ];
       default:
         return [{ path: '/login', label: 'Login', icon: LayoutDashboard }];
@@ -126,22 +101,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseM
             else if (role === 'SUPER_ADMIN') navigate('/super-admin/dashboard');
             else if (role === 'COLLEGE_MANAGEMENT') navigate('/management/dashboard');
             else if (role === 'IQAC') navigate('/iqac/dashboard');
-            else if (role === 'HOD') navigate('/hod/dashboard');
-            else if (role === 'FACULTY') navigate('/faculty/dashboard');
+            else if (role === 'HOD') navigate('/hod/downloads');
+            else if (role === 'FACULTY') navigate('/faculty/profile');
             if (onCloseMobile) onCloseMobile();
           }}
           className="flex items-center gap-3 cursor-pointer select-none"
           title="Dashboard"
         >
-          <div className="w-9 h-9 rounded-xl bg-brand-500/20 text-brand-400 flex items-center justify-center font-black border border-brand-500/30 shadow-inner">
-            <GraduationCap className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-sm font-black text-white tracking-wide block">Professor360</span>
-            <span className="text-[10px] text-brand-400 font-semibold uppercase tracking-wider block">
-              {role === 'SUPER_ADMIN' ? 'Product Administration' : role === 'COLLEGE_MANAGEMENT' ? 'College Monitoring (Admin1)' : role === 'DEPARTMENT_INCHARGE' ? 'Dept In-charge' : 'Quality Assurance'}
-            </span>
-          </div>
+          <Professor360Logo
+            size="md"
+            showText={true}
+            textColor="text-white"
+            subtitleColor="text-brand-400"
+            subtitle={
+              role === 'SUPER_ADMIN'
+                ? 'Product Administration'
+                : role === 'COLLEGE_MANAGEMENT'
+                ? 'College Monitoring (Admin1)'
+                : role === 'DEPARTMENT_INCHARGE'
+                ? 'Dept In-charge'
+                : role === 'HOD'
+                ? 'Head of Department'
+                : 'Quality Assurance'
+            }
+          />
         </div>
         {onCloseMobile && (
           <button

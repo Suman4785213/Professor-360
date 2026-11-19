@@ -23,3 +23,11 @@ class ReportRateThrottle(UserRateThrottle):
 class BurstRateThrottle(UserRateThrottle):
     """Controls rapid bursts of API requests."""
     scope = 'burst'
+
+
+class PasswordResetRateThrottle(AnonRateThrottle):
+    scope = 'password_reset'
+    rate = '5/hour'
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {'scope': self.scope, 'ident': self.get_ident(request)}

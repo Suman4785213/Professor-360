@@ -315,3 +315,19 @@ class Phase3WorkflowTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(res.data['is_duplicate'])
         self.assertEqual(res.data['count'], 1)
+
+    def test_returned_incharge_recovery_and_duplicate(self):
+        activity = Activity.objects.create(college=self.college_a, department=self.dept_cse,
+            faculty=self.faculty_1, academic_year=self.ay, category=self.cat_fdp,
+            title='Returned review', status=ActivityStatus.RETURNED_TO_INCHARGE)
+        rec = VerificationRecord.objects.create(activity=activity, college=self.college_a,
+            current_status=activity.status)
+        self.client.force_authenticate(user=self.incharge_cse)
+        url = f'/api/v1/verifications/{rec.id}/incharge-verify/'
+        first = self.client.post(url, {'decision': 'APPROVE'})
+        self.assertEqual(first.status_code, 200)
+        count = rec.logs.count()
+        self.assertEqual(self.client.post(url, {'decision': 'APPROVE'}).status_code, 400)
+        self.assertEqual(rec.logs.count(), count)
+        activity.refresh_from_db()
+        self.assertEqual(activity.status, ActivityStatus.PENDING_HOD)

@@ -2,7 +2,7 @@
 // IQAC SaaS — Progressive Web App Service Worker
 // Provides offline shell caching and network resilience.
 // ==============================================================================
-const CACHE_NAME = 'iqac-cache-v1';
+const CACHE_NAME = 'iqac-cache-v2-private-media';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -34,7 +34,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // Exclude API calls and non-GET requests from service worker cache
-  if (url.pathname.startsWith('/api/') || event.request.method !== 'GET') {
+  if ((url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/') || url.pathname === '/reset-password') || event.request.method !== 'GET') {
     return;
   }
 

@@ -1,3 +1,4 @@
+import { openPrivateFile } from '../../api/privateMedia';
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
@@ -276,7 +277,7 @@ export const EvidenceDetailView: React.FC = () => {
 
           {selectedDoc?.download_url && (
             <Button
-              onClick={() => window.open(selectedDoc.download_url, '_blank')}
+              onClick={() => void openPrivateFile(selectedDoc.download_url)}
               variant="primary"
               size="sm"
             >

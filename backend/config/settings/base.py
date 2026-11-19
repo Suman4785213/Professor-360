@@ -274,3 +274,11 @@ CONTENT_SECURITY_POLICY = config(
     'CONTENT_SECURITY_POLICY',
     default="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*;"
 )
+
+# Must point to the deployed password-reset form; never derive from the request Host.
+PASSWORD_RESET_URL = config('PASSWORD_RESET_URL', default='')
+
+STORAGES = {
+    'default': {'BACKEND': 'core.storage.PrivateFileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}

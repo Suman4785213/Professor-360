@@ -23,6 +23,10 @@ export interface FacultyProfile {
   joining_date?: string;
   phone?: string;
   profile_photo?: string | null;
+  resume?: string | null;
+  resume_url?: string | null;
+  experience_years?: number | null;
+  experience_duration?: string;
   status: 'ACTIVE' | 'ON_LEAVE' | 'RESIGNED' | 'RETIRED';
   bio?: string;
   created_at: string;
@@ -64,6 +68,7 @@ export interface PublicCollegeOption {
   code: string;
   city?: string;
   state?: string;
+  accreditation_type?: string;
   departments: PublicDepartmentOption[];
 }
 

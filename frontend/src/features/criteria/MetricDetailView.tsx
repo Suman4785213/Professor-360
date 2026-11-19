@@ -1,3 +1,4 @@
+import { openPrivateFile } from '../../api/privateMedia';
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
@@ -272,7 +273,7 @@ export const MetricDetailView: React.FC = () => {
     try {
       const res = await apiClient.get(`/evidence/${evidenceId}/preview/`);
       if (res.data?.url) {
-        window.open(res.data.url, '_blank');
+        void openPrivateFile(res.data.url);
       }
     } catch (e) {
       alert('Unable to generate preview. Document might not have an attached file.');
@@ -283,7 +284,7 @@ export const MetricDetailView: React.FC = () => {
     try {
       const res = await apiClient.get(`/evidence/${evidenceId}/download/`);
       if (res.data?.download_url) {
-        window.open(res.data.download_url, '_blank');
+        void openPrivateFile(res.data.download_url);
       }
     } catch (e) {
       alert('Download link currently unavailable.');

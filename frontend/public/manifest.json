@@ -4,10 +4,21 @@
   "description": "Centralized quality assurance, evidence collection, and NAAC/NBA compliance platform for colleges.",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "src": "/professor360_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
     }
   ],
   "start_url": "/",

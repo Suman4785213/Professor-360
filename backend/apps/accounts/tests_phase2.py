@@ -99,8 +99,10 @@ class Phase2ComprehensiveTests(TestCase):
         # Request reset token
         res = self.client.post('/api/v1/auth/forgot-password/', {'email': 'faculty.cse@col-a.edu'})
         self.assertEqual(res.status_code, 200)
-        reset_token = res.data.get('reset_token')
-        self.assertIsNotNone(reset_token)
+        self.assertNotIn('reset_token', res.data)
+        from django.core import mail
+        from urllib.parse import urlparse, parse_qs
+        reset_token = parse_qs(urlparse(mail.outbox[-1].body.split()[-1]).fragment)['token'][0]
 
         # Reset password
         reset_res = self.client.post('/api/v1/auth/reset-password/', {

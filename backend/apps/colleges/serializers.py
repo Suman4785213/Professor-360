@@ -176,9 +176,9 @@ class CollegeCreateWithAdminSerializer(serializers.ModelSerializer):
     Used by Super Admin in the College Onboarding Wizard to create college
     plus initial IQAC / Management administrator in one step.
     """
-    admin_email = serializers.EmailField(write_only=True)
-    admin_first_name = serializers.CharField(write_only=True, default='College')
-    admin_last_name = serializers.CharField(write_only=True, default='Admin')
+    admin_email = serializers.EmailField(write_only=True, required=False)
+    admin_first_name = serializers.CharField(write_only=True, default='College', required=False)
+    admin_last_name = serializers.CharField(write_only=True, default='Admin', required=False)
     admin_password = serializers.CharField(write_only=True, required=False)
     admin_role = serializers.ChoiceField(
         choices=[UserRole.IQAC, UserRole.COLLEGE_MANAGEMENT],
@@ -197,6 +197,16 @@ class CollegeCreateWithAdminSerializer(serializers.ModelSerializer):
             'admin_password', 'admin_role', 'plan_code'
         ]
         read_only_fields = ['id']
+
+    def create(self, validated_data):
+        # Strip write-only admin and subscription fields not belonging to the College model
+        validated_data.pop('admin_email', None)
+        validated_data.pop('admin_first_name', None)
+        validated_data.pop('admin_last_name', None)
+        validated_data.pop('admin_password', None)
+        validated_data.pop('admin_role', None)
+        validated_data.pop('plan_code', None)
+        return super().create(validated_data)
 
 
 class UserInvitationSerializer(serializers.ModelSerializer):

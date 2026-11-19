@@ -1,3 +1,4 @@
+import { SecureLink } from '../../api/privateMedia';
 import React, { useEffect, useState } from 'react';
 import {
   LifeBuoy,
@@ -370,7 +371,7 @@ export const AdminSupportManagement: React.FC = () => {
                   {selectedTicket.attachments.length > 0 && (
                     <div className="pt-2 border-t border-slate-200 flex flex-wrap gap-2">
                       {selectedTicket.attachments.map(att => (
-                        <a
+                        <SecureLink
                           key={att.id}
                           href={att.file_url || att.file}
                           target="_blank"
@@ -379,7 +380,7 @@ export const AdminSupportManagement: React.FC = () => {
                         >
                           <Paperclip className="w-3 h-3 text-indigo-500" />
                           {att.file_name}
-                        </a>
+                        </SecureLink>
                       ))}
                     </div>
                   )}

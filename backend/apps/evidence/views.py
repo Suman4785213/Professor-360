@@ -230,6 +230,9 @@ class EvidenceViewSet(TenantMixin, viewsets.ReadOnlyModelViewSet):
         if not any(uploaded_file.name.lower().endswith(ext) for ext in allowed_exts):
             return Response({'detail': 'Only PDF, JPG, JPEG, and PNG files are allowed.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        from core.validators import validate_file_security
+        validate_file_security(uploaded_file)
+
         # Compute SHA-256 hash
         hasher = hashlib.sha256()
         for chunk in uploaded_file.chunks():
@@ -253,6 +256,10 @@ class EvidenceViewSet(TenantMixin, viewsets.ReadOnlyModelViewSet):
                 doc_category = DocumentCategory.objects.filter(id=cat_uuid).first()
             except (ValueError, AttributeError):
                 doc_category = DocumentCategory.objects.filter(code__iexact=str(category_val).strip()).first()
+
+        if doc_category and doc_category.college_id not in (None, activity.college_id):
+            raise ValidationError({'category': 'Category belongs to another institution.'})
+        uploaded_file.seek(0)
 
         doc_type = request.data.get('document_type', 'SUPPORTING')
         description = request.data.get('description', '')
